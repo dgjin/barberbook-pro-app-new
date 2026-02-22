@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Layout } from '../../components/Layout';
 import { BottomNav } from '../../components/BottomNav';
 import { PageRoute } from '../../types';
-import { useDashboardSchedule, useYearlyStats } from '../../hooks/useAdmin';
+import { useDashboardSchedule, useYearlyStats, useMonthlyStats, useQuarterlyStats, useWeeklyStats } from '../../hooks/useAdmin';
 import { useRealtime } from '../../hooks/useRealtime';
 import { Loading, Skeleton } from '../../components/Loading';
 
@@ -10,9 +10,14 @@ interface Props {
   onNavigate: (route: PageRoute) => void;
 }
 
+type PeriodType = 'week' | 'month' | 'quarter' | 'year';
+
 export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
   const [viewMode, setViewMode] = useState<'schedule' | 'vouchers'>('vouchers');
+  const [periodType, setPeriodType] = useState<PeriodType>('month');
   const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const currentQuarter = Math.floor((currentMonth + 2) / 3);
 
   // 使用自定义 Hooks
   const {
@@ -27,11 +32,55 @@ export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
     refetch: refetchSchedule
   } = useDashboardSchedule();
 
+  // 年度统计
   const {
     stats: yearlyStats,
-    total: totalVouchers,
-    loading: statsLoading
+    totalVouchers: yearlyTotalVouchers,
+    totalAppointments: yearlyTotalAppointments,
+    loading: yearlyLoading
   } = useYearlyStats(barbers, currentYear);
+
+  // 月度统计
+  const {
+    stats: monthlyStats,
+    totalVouchers: monthlyTotalVouchers,
+    totalAppointments: monthlyTotalAppointments,
+    loading: monthlyLoading
+  } = useMonthlyStats(barbers, currentYear, currentMonth);
+
+  // 季度统计
+  const {
+    stats: quarterlyStats,
+    totalVouchers: quarterlyTotalVouchers,
+    totalAppointments: quarterlyTotalAppointments,
+    loading: quarterlyLoading
+  } = useQuarterlyStats(barbers, currentYear, currentQuarter);
+
+  // 每周统计
+  const {
+    stats: weeklyStats,
+    totalVouchers: weeklyTotalVouchers,
+    totalAppointments: weeklyTotalAppointments,
+    loading: weeklyLoading
+  } = useWeeklyStats(barbers);
+
+  // 根据当前选择的维度获取对应的数据
+  const getCurrentStats = () => {
+    switch (periodType) {
+      case 'week':
+        return { stats: weeklyStats, totalVouchers: weeklyTotalVouchers, totalAppointments: weeklyTotalAppointments, loading: weeklyLoading };
+      case 'month':
+        return { stats: monthlyStats, totalVouchers: monthlyTotalVouchers, totalAppointments: monthlyTotalAppointments, loading: monthlyLoading };
+      case 'quarter':
+        return { stats: quarterlyStats, totalVouchers: quarterlyTotalVouchers, totalAppointments: quarterlyTotalAppointments, loading: quarterlyLoading };
+      case 'year':
+        return { stats: yearlyStats, totalVouchers: yearlyTotalVouchers, totalAppointments: yearlyTotalAppointments, loading: yearlyLoading };
+      default:
+        return { stats: monthlyStats, totalVouchers: monthlyTotalVouchers, totalAppointments: monthlyTotalAppointments, loading: monthlyLoading };
+    }
+  };
+
+  const { stats: currentStats, totalVouchers, totalAppointments, loading: statsLoading } = getCurrentStats();
 
   // 实时订阅
   useRealtime({
@@ -162,42 +211,89 @@ export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
                   </div>
                 )}
                 <div className="space-y-4">
-                  {timeSlots.map((slot, idx) => (
-                    <div 
-                      key={idx} 
-                      className={`flex items-center gap-4 p-4 rounded-2xl border ${
-                        slot.status === 'available' 
-                          ? 'border-2 border-dashed border-primary/20 bg-blue-50/20' 
-                          : 'bg-gray-50/50 border-gray-100'
-                      }`}
-                    >
-                      <span className={`text-xs font-semibold w-12 ${
-                        slot.status === 'available' ? 'text-primary' : 'text-slate-400'
-                      }`}>
-                        {slot.time}
-                      </span>
-                      <div className={`h-8 w-1 rounded-full ${
-                        slot.status === 'available' ? 'bg-status-ready' : 'bg-status-busy'
-                      }`}></div>
-                      <div className="flex-1">
-                        <p className={`text-sm font-bold ${
-                          slot.status === 'available' ? 'text-primary' : 'text-slate-900'
-                        }`}>
-                          {slot.status === 'available' ? '可预约' : slot.appointment?.customer_name}
-                        </p>
-                        <p className="text-[10px] text-slate-400">
-                          {slot.status === 'available' ? '空闲时段' : slot.appointment?.service_name}
-                        </p>
+                  {timeSlots.map((slot, idx) => {
+                    // 根据状态确定样式
+                    const getStatusStyles = () => {
+                      switch (slot.status) {
+                        case 'available':
+                          return {
+                            container: 'border-2 border-dashed border-primary/20 bg-blue-50/20',
+                            timeText: 'text-primary',
+                            indicator: 'bg-status-ready',
+                            mainText: 'text-primary',
+                            subText: '空闲时段'
+                          };
+                        case 'expired':
+                          return {
+                            container: 'bg-slate-100/50 border-slate-200 border',
+                            timeText: 'text-slate-400',
+                            indicator: 'bg-slate-300',
+                            mainText: 'text-slate-400',
+                            subText: '已过期'
+                          };
+                        case 'booked':
+                        default:
+                          return {
+                            container: 'bg-gray-50/50 border-gray-100 border',
+                            timeText: 'text-slate-400',
+                            indicator: 'bg-status-busy',
+                            mainText: 'text-slate-900',
+                            subText: slot.appointment?.service_name || ''
+                          };
+                      }
+                    };
+                    
+                    const styles = getStatusStyles();
+                    
+                    return (
+                      <div 
+                        key={idx} 
+                        className={`flex items-center gap-4 p-4 rounded-2xl ${styles.container}`}
+                      >
+                        <span className={`text-xs font-semibold w-12 ${styles.timeText}`}>
+                          {slot.time}
+                        </span>
+                        <div className={`h-8 w-1 rounded-full ${styles.indicator}`}></div>
+                        <div className="flex-1">
+                          <p className={`text-sm font-bold ${styles.mainText}`}>
+                            {slot.status === 'available' ? '可预约' : 
+                             slot.status === 'expired' ? '已过期' : 
+                             slot.appointment?.customer_name}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {styles.subText}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </section>
           </>
         ) : (
           <section className="px-6 mt-8 animate-fade-in">
-            {/* 年度统计卡片 */}
+            {/* 维度切换按钮 */}
+            <div className="flex gap-2 mb-6">
+              {(['week', 'month', 'quarter', 'year'] as PeriodType[]).map((type) => (
+                <button
+                  key={type}
+                  onClick={() => setPeriodType(type)}
+                  className={`flex-1 py-3 rounded-2xl text-[12px] font-bold uppercase tracking-wider transition-all ${
+                    periodType === type
+                      ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/20'
+                      : 'bg-white text-slate-500 border border-gray-100 hover:bg-gray-50'
+                  }`}
+                >
+                  {type === 'week' && '本周'}
+                  {type === 'month' && '本月'}
+                  {type === 'quarter' && '本季'}
+                  {type === 'year' && '年度'}
+                </button>
+              ))}
+            </div>
+
+            {/* 统计卡片 */}
             <div className="bg-slate-900 rounded-[32px] p-8 mb-8 text-white relative overflow-hidden shadow-2xl border border-white/5">
               <div className="absolute top-0 right-0 p-4 opacity-10">
                 <span className="material-symbols-outlined text-9xl">wallet</span>
@@ -205,22 +301,31 @@ export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
               <div className="relative z-10">
                 <p className="text-xs font-bold text-blue-300 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
                   <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse shadow-[0_0_8px_#60a5fa]"></span>
-                  {currentYear}年度收益看板
+                  {periodType === 'week' && '本周收益看板'}
+                  {periodType === 'month' && '本月收益看板'}
+                  {periodType === 'quarter' && '本季度收益看板'}
+                  {periodType === 'year' && `${currentYear}年度收益看板`}
                 </p>
                 <div className="flex items-baseline gap-2">
                   <span className="text-6xl font-black font-mono tracking-tighter text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
                     {statsLoading ? '-' : totalVouchers}
                   </span>
-                  <span className="text-sm font-bold opacity-60">张理发券核销额</span>
+                  <span className="text-sm font-bold opacity-60">张理发券核销</span>
                 </div>
-                <div className="mt-6 pt-6 border-t border-white/10 grid grid-cols-2 gap-4">
+                <div className="mt-6 pt-6 border-t border-white/10 grid grid-cols-3 gap-4">
                   <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
-                    <p className="text-[9px] text-slate-400 uppercase font-black mb-1 opacity-50 tracking-tighter">团队活跃度</p>
+                    <p className="text-[9px] text-slate-400 uppercase font-black mb-1 opacity-50 tracking-tighter">团队规模</p>
                     <p className="text-sm font-bold">{barbers.length} 位发型师</p>
                   </div>
                   <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
-                    <p className="text-[9px] text-slate-400 uppercase font-black mb-1 opacity-50 tracking-tighter">财务期间</p>
-                    <p className="text-sm font-bold">{currentYear} 全年度</p>
+                    <p className="text-[9px] text-slate-400 uppercase font-black mb-1 opacity-50 tracking-tighter">总预约数</p>
+                    <p className="text-sm font-bold">{statsLoading ? '-' : totalAppointments} 单</p>
+                  </div>
+                  <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
+                    <p className="text-[9px] text-slate-400 uppercase font-black mb-1 opacity-50 tracking-tighter">券使用占比</p>
+                    <p className="text-sm font-bold">
+                      {statsLoading || !totalAppointments ? '-' : `${((totalVouchers / totalAppointments) * 100).toFixed(1)}%`}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -234,14 +339,19 @@ export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
                   <span className="material-symbols-outlined text-primary text-lg">leaderboard</span>
                   理发师业绩排行
                 </h3>
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded-md">年度明细</span>
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded-md">
+                  {periodType === 'week' && '本周明细'}
+                  {periodType === 'month' && '月度明细'}
+                  {periodType === 'quarter' && '季度明细'}
+                  {periodType === 'year' && '年度明细'}
+                </span>
               </div>
-              
+
               {statsLoading ? (
                 <Skeleton rows={3} avatar />
               ) : (
                 <div className="space-y-8">
-                  {yearlyStats.map((stat, i) => {
+                  {currentStats.map((stat, i) => {
                     const percentage = totalVouchers > 0 ? (stat.count / totalVouchers) * 100 : 0;
                     return (
                       <div key={i} className="flex flex-col gap-3 group">
@@ -257,7 +367,12 @@ export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
                             </div>
                             <div className="flex flex-col">
                               <span className="text-[15px] font-bold text-slate-800">{stat.barberName}</span>
-                              <span className="text-[10px] text-slate-400 font-medium">年度贡献占比: {percentage.toFixed(1)}%</span>
+                              <span className="text-[10px] text-slate-400 font-medium">
+                                贡献占比: {percentage.toFixed(1)}%
+                                {stat.appointmentCount > 0 && (
+                                  <> · 预约: {stat.appointmentCount}单</>
+                                )}
+                              </span>
                             </div>
                           </div>
                           <div className="text-right">
@@ -268,20 +383,25 @@ export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
                           </div>
                         </div>
                         <div className="relative h-2 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner">
-                          <div 
-                            className="absolute top-0 left-0 h-full bg-gradient-to-r from-primary via-blue-400 to-cyan-400 rounded-full transition-all duration-1000 ease-out shadow-[0_0_8px_rgba(0,122,255,0.4)]" 
+                          <div
+                            className="absolute top-0 left-0 h-full bg-gradient-to-r from-primary via-blue-400 to-cyan-400 rounded-full transition-all duration-1000 ease-out shadow-[0_0_8px_rgba(0,122,255,0.4)]"
                             style={{ width: `${percentage}%` }}
                           ></div>
                         </div>
                       </div>
                     );
                   })}
-                  {yearlyStats.length === 0 && (
+                  {currentStats.length === 0 && (
                     <div className="text-center py-20 flex flex-col items-center gap-4">
                       <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center">
                         <span className="material-symbols-outlined text-4xl text-slate-200">event_busy</span>
                       </div>
-                      <p className="text-slate-400 text-sm font-bold uppercase tracking-widest">本年度暂无核销数据</p>
+                      <p className="text-slate-400 text-sm font-bold uppercase tracking-widest">
+                        {periodType === 'week' && '本周暂无核销数据'}
+                        {periodType === 'month' && '本月暂无核销数据'}
+                        {periodType === 'quarter' && '本季度暂无核销数据'}
+                        {periodType === 'year' && '本年度暂无核销数据'}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -293,8 +413,9 @@ export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
                 <span className="material-symbols-outlined text-primary text-xl">info</span>
               </div>
               <p className="text-[11px] text-blue-800/70 leading-relaxed font-medium">
-                <b>年度数据说明：</b>本看板统计本自然年度内所有状态为"已完成"且使用了理发券的预约单。
-                由于系统具备自动冲正逻辑，任何在当年内取消的已完成用券订单都将实时从统计中扣减。
+                <b>数据说明：</b>本看板统计所有状态为"已完成"的预约单。
+                理发券核销数表示使用理发券完成的订单数量，总预约数包含所有已完成订单（无论是否使用券）。
+                由于系统具备自动冲正逻辑，任何取消的已完成订单都将实时从统计中扣减。
               </p>
             </div>
           </section>

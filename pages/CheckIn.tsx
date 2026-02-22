@@ -213,80 +213,139 @@ export const CheckIn: React.FC<Props> = ({ onNavigate, appointment, currentUser,
           </button>
         </section>
 
-        {/* 预约票据区块保持原有逻辑 (略，已包含在下面的完整内容中) */}
-        {displayAppt && displayAppt.id ? (
-          <section className="animate-fade-in">
-            <div className="flex justify-between items-end mb-4 px-1">
-              <div>
-                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Ticket</h3>
-                <p className="text-[12px] text-slate-900 font-black mt-0.5">当前预约凭证</p>
-              </div>
-              {(() => {
-                const style = getStatusStyle(displayAppt.status || 'confirmed');
-                return <span className={`px-2.5 py-1 ${style.bg} ${style.text} text-[9px] font-black rounded-lg uppercase`}>{style.label}</span>;
-              })()}
-            </div>
-
-            <div className={`bg-white rounded-[32px] shadow-xl p-6 border border-white text-center ${displayAppt.status === 'cancelled' ? 'grayscale opacity-60' : ''}`}>
-              <div className="flex flex-col items-center">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{displayAppt.service_name}</p>
-                <h4 className="text-lg font-black text-slate-900 mb-4">{displayAppt.barber_name}</h4>
-                <div className="bg-slate-50 px-4 py-2 rounded-xl text-primary text-[11px] font-black mb-6 border border-slate-100 uppercase">{displayAppt.date_str} @ {displayAppt.time_str}</div>
-
-                {displayAppt.status !== 'cancelled' && (
-                  <div className="bg-white p-4 rounded-[24px] border border-slate-50 shadow-inner mb-2">
-                    <img alt="QR Code" className="w-48 h-48 opacity-90" src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=appt:${displayAppt.id}`} />
-                  </div>
+        {/* 我的预约列表 */}
+        <section className="animate-fade-in mb-10">
+          <div className="flex justify-between items-end mb-5 px-1">
+            <div>
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">My Appointments</h3>
+              <p className="text-[12px] text-slate-900 font-black mt-0.5">
+                我的预约
+                {myAppointments.length > 0 && (
+                  <span className="ml-2 px-2 py-0.5 bg-primary/10 text-primary text-[10px] rounded-full">{myAppointments.length}</span>
                 )}
-                <p className="text-[9px] text-slate-300 font-bold uppercase tracking-widest">Ticket ID: #{displayAppt.id}</p>
-              </div>
+              </p>
             </div>
-
-            {['confirmed', 'pending', 'checked_in'].includes(displayAppt.status || '') && (
-              <div className="mt-8 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-50 text-center">
-                    <p className="text-[9px] text-slate-400 font-black uppercase mb-1">Queue Position</p>
-                    <p className="text-3xl font-black text-slate-900 font-mono">{queuePosition || '-'}</p>
-                  </div>
-                  <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-50 text-center">
-                    <p className="text-[9px] text-slate-400 font-black uppercase mb-1">Wait Time</p>
-                    <p className="text-3xl font-black text-primary font-mono">{waitTime}<span className="text-[10px] ml-1">min</span></p>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {(displayAppt.status || '') !== 'checked_in' ? (
-                    <button
-                      onClick={() => {
-                        const { execute: manualCheckIn } = { execute: async () => { await checkInAppointment(displayAppt.id!); alert('签到成功'); } };
-                        manualCheckIn();
-                      }}
-                      className="w-full h-14 bg-slate-900 text-white font-black rounded-xl flex items-center justify-center gap-3 active:scale-[0.98] transition-all"
-                    >
-                      <span className="material-symbols-outlined">how_to_reg</span> 到店签到
-                    </button>
-                  ) : (
-                    <div className="w-full h-14 bg-green-50 text-green-600 font-black rounded-xl flex items-center justify-center gap-3 border border-green-100">
-                      <span className="material-symbols-outlined">verified</span> 您已完成签到，请留意广播
-                    </div>
-                  )}
-                  <button
-                    onClick={() => { if (confirm('取消预约？')) cancelAppointment(displayAppt.id!); }}
-                    className="w-full h-12 text-slate-400 text-[11px] font-black uppercase tracking-widest hover:text-red-500 transition-colors"
-                  >
-                    取消当前预约
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-20 opacity-40">
-            <span className="material-symbols-outlined text-6xl text-slate-300">receipt_long</span>
-            <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mt-4">暂无预约动态</p>
+            <button 
+              onClick={() => onNavigate('booking')}
+              className="text-primary text-[11px] font-bold bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100 active:scale-95 transition-all"
+            >
+              + 新建预约
+            </button>
           </div>
-        )}
+
+          {myAppointments.length > 0 ? (
+            <div className="space-y-4">
+              {myAppointments.map((appt) => {
+                const style = getStatusStyle(appt.status || 'confirmed');
+                const isActive = displayAppt?.id === appt.id;
+                return (
+                  <div 
+                    key={appt.id}
+                    className={`bg-white rounded-[28px] p-5 border transition-all cursor-pointer active:scale-[0.98] ${
+                      isActive ? 'shadow-xl border-primary/20 ring-2 ring-primary/10' : 'shadow-lg border-white hover:shadow-xl'
+                    } ${appt.status === 'cancelled' ? 'opacity-60 grayscale' : ''}`}
+                    onClick={() => {
+                      // 切换选中的预约
+                      if (onUpdateUser && currentUser) {
+                        // 简单方式：通过重新设置 displayAppt 来切换
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
+                    }}
+                  >
+                    {/* 预约卡片头部 */}
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center">
+                          <span className="material-symbols-outlined text-slate-400">content_cut</span>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{appt.service_name}</p>
+                          <p className="text-base font-black text-slate-900">{appt.barber_name}</p>
+                        </div>
+                      </div>
+                      <span className={`px-3 py-1.5 ${style.bg} ${style.text} text-[10px] font-black rounded-xl`}>
+                        {style.label}
+                      </span>
+                    </div>
+
+                    {/* 时间信息 */}
+                    <div className="flex items-center gap-2 mb-4 text-[12px] text-slate-500">
+                      <span className="material-symbols-outlined text-[16px] text-slate-300">calendar_today</span>
+                      <span className="font-semibold">{appt.date_str}</span>
+                      <span className="text-slate-300">|</span>
+                      <span className="material-symbols-outlined text-[16px] text-slate-300">schedule</span>
+                      <span className="font-semibold">{appt.time_str}</span>
+                    </div>
+
+                    {/* QR 码区域 - 仅对非取消预约显示 */}
+                    {appt.status !== 'cancelled' && (
+                      <div className="bg-slate-50 rounded-2xl p-4 flex items-center gap-4">
+                        <div className="bg-white p-2 rounded-xl shadow-sm">
+                          <img 
+                            alt="QR" 
+                            className="w-16 h-16" 
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=appt:${appt.id}`} 
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Ticket ID</p>
+                          <p className="text-sm font-mono font-black text-slate-700">#{appt.id}</p>
+                        </div>
+                        {appt.status === 'checked_in' ? (
+                          <div className="flex items-center gap-1 text-green-600 text-[11px] font-bold">
+                            <span className="material-symbols-outlined text-[16px]">verified</span>
+                            已签到
+                          </div>
+                        ) : appt.status === 'confirmed' || appt.status === 'pending' ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              checkInAppointment(appt.id!).then(() => alert('签到成功'));
+                            }}
+                            className="px-4 py-2 bg-slate-900 text-white text-[11px] font-black rounded-xl active:scale-95 transition-all"
+                          >
+                            签到
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {/* 操作按钮 */}
+                    {(appt.status === 'confirmed' || appt.status === 'pending' || appt.status === 'checked_in') && (
+                      <div className="flex gap-3 mt-4 pt-4 border-t border-slate-50">
+                        {appt.status !== 'checked_in' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm('确定取消此预约？')) cancelAppointment(appt.id!);
+                            }}
+                            className="flex-1 h-10 text-slate-400 text-[11px] font-black uppercase tracking-wider hover:text-red-500 transition-colors"
+                          >
+                            取消预约
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white rounded-[28px] p-10 text-center shadow-lg border border-white">
+              <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mx-auto mb-4">
+                <span className="material-symbols-outlined text-3xl text-slate-300">receipt_long</span>
+              </div>
+              <p className="text-[13px] font-bold text-slate-600 mb-2">暂无预约</p>
+              <p className="text-[11px] text-slate-400 mb-5">您还没有任何预约记录</p>
+              <button 
+                onClick={() => onNavigate('booking')}
+                className="px-6 py-3 bg-primary text-white text-[12px] font-black rounded-2xl active:scale-95 transition-all"
+              >
+                立即预约
+              </button>
+            </div>
+          )}
+        </section>
       </main>
 
       {/* 个人中心模态框（资料 + 密码 一体化） */}

@@ -195,7 +195,7 @@ export const CustomerHome: React.FC<Props> = ({ onNavigate, onBarberSelect, curr
                 </button>
               </div>
             ) : (
-              barbers.map((barber) => (
+              barbers.filter(b => b.status !== 'rest').map((barber) => (
                 <div
                   key={barber.id}
                   className="snap-start min-w-[200px] bg-white rounded-[36px] p-3 pb-8 border border-white shadow-xl shadow-slate-100/50 hover:shadow-2xl hover:shadow-blue-100/30 transition-all duration-500 cursor-pointer active:scale-95 group"
@@ -321,7 +321,7 @@ export const CustomerHome: React.FC<Props> = ({ onNavigate, onBarberSelect, curr
               </div>
             </div>
             <button
-              onClick={() => setShowQuickHelp(false)}
+              onClick={() => onNavigate('booking')}
               className="w-full mt-12 bg-slate-900 text-white font-black py-5 rounded-[24px] shadow-2xl shadow-slate-200 active:scale-[0.96] transition-all text-base tracking-widest"
             >
               开始预约服务

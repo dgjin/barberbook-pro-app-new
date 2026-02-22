@@ -5,7 +5,6 @@ import { PageRoute, User, Appointment } from '../../types';
 import { useBarberAppointments, useSaturation, useBarberSaturation } from '../../hooks/useAppointments';
 import { useSystemConfig } from '../../hooks/useServices';
 import { useRealtime } from '../../hooks/useRealtime';
-import { useAsync } from '../../hooks/useAsync';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { Loading } from '../../components/Loading';
 
@@ -77,15 +76,23 @@ export const Workbench: React.FC<Props> = ({ onNavigate, currentUser }) => {
   });
 
   // 计算当前服务和等待列表
-  const currentServiceAppt = useMemo(() =>
-    appointments.find(a => a.status === 'checked_in'),
-    [appointments]
-  );
-
-  const waitingList = useMemo(() =>
-    appointments.filter(a => a.status !== 'checked_in'),
-    [appointments]
-  );
+  const { currentServiceAppt, waitingList } = useMemo(() => {
+    // 获取所有已签到的顾客，按签到时间排序
+    const checkedInAppts = appointments
+      .filter(a => a.status === 'checked_in')
+      .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+    
+    // 第一个签到的顾客为正在服务
+    const current = checkedInAppts.length > 0 ? checkedInAppts[0] : null;
+    
+    // 待服务序列：其他已签到的顾客（按签到顺序）+ 已确认/待处理的预约
+    const waiting = [
+      ...checkedInAppts.slice(1), // 其他已签到的顾客
+      ...appointments.filter(a => a.status === 'confirmed' || a.status === 'pending')
+    ];
+    
+    return { currentServiceAppt: current, waitingList: waiting };
+  }, [appointments]);
 
   // 实时订阅（只在有理发师名称时订阅）
   useRealtime({
@@ -93,42 +100,85 @@ export const Workbench: React.FC<Props> = ({ onNavigate, currentUser }) => {
     filter: currentUser?.name ? `barber_name=eq.${currentUser.name}` : undefined,
     onAny: useCallback(() => {
       refetchAppointments();
-    }, [refetchAppointments])
+    }, [refetchAppointments]),
+    onUpdate: useCallback((payload) => {
+      const newRec = payload.new as Appointment;
+      const oldRec = payload.old as Appointment;
+      
+      // 检测顾客签到状态变化
+      if (newRec.status === 'checked_in' && oldRec.status !== 'checked_in') {
+        console.log('[Realtime] 顾客签到:', newRec.customer_name);
+        
+        // 如果当前没有正在服务的顾客，自动切换到服务状态
+        if (!currentServiceAppt) {
+          setWorkbenchMode('active');
+        }
+      }
+      
+      // 检测服务完成
+      if (newRec.status === 'completed' && oldRec.status !== 'completed') {
+        console.log('[Realtime] 服务完成:', newRec.customer_name);
+        // 如果有等待的顾客，自动切换到完成模式显示"呼叫下一位"
+        if (waitingList.length > 0) {
+          setWorkbenchMode('completed');
+        }
+      }
+      
+      refetchAppointments();
+    }, [refetchAppointments, currentServiceAppt, waitingList.length])
   });
 
-  // 完成服务
-  const { execute: handleCompleteService, loading: isCompleting } = useAsync(
-    async () => {
-      if (!currentServiceAppt || !currentUser) return;
-      if (!window.confirm(`确认完成并结算顾客 ${currentServiceAppt.customer_name} 的服务吗？`)) return;
+  // 完成服务 - 使用本地状态避免 useAsync 的复杂性
+  const [isCompleting, setIsCompleting] = useState(false);
+  
+  const handleCompleteService = useCallback(async () => {
+    if (!currentServiceAppt || !currentUser || isCompleting) return;
+    
+    // 先弹出确认框，确认后再设置 loading 状态
+    const confirmed = window.confirm(`确认完成并结算顾客 ${currentServiceAppt.customer_name} 的服务吗？`);
+    if (!confirmed) return;
 
+    // 保存当前预约信息，防止后续状态变化导致数据丢失
+    const apptToComplete = currentServiceAppt;
+    
+    setIsCompleting(true);
+    
+    try {
       const usedVoucher = await completeAppointment(
-        currentServiceAppt.id!,
-        currentServiceAppt.customer_name,
+        apptToComplete.id!,
+        apptToComplete.customer_name,
         currentUser.name,
         currentUser
       );
 
-      return usedVoucher;
-    },
-    {
-      onSuccess: (usedVoucher) => {
-        setWorkbenchMode('completed');
-        setToastMessage(usedVoucher ? '服务完成，已自动核销理发券' : '服务完成');
-        setShowToast(true);
-        setTimeout(() => setShowToast(false), 3000);
-      },
-      onError: (err) => {
-        alert("操作失败: " + (err.message || "未知错误"));
-      }
+      // 先切换模式，再关闭 loading
+      setWorkbenchMode('completed');
+      setToastMessage(usedVoucher ? '服务完成，已自动核销理发券' : '服务完成');
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+    } catch (err: any) {
+      alert("操作失败: " + (err?.message || "未知错误"));
+    } finally {
+      setIsCompleting(false);
     }
-  );
+  }, [currentServiceAppt, currentUser, isCompleting, completeAppointment, setWorkbenchMode]);
 
   // 呼叫下一位
   const handleCallNext = useCallback(() => {
     setWorkbenchMode('active');
     refetchAppointments();
-  }, [setWorkbenchMode, refetchAppointments]);
+    
+    // 广播消息给 WebMonitor，触发语音播报
+    if (currentUser?.name) {
+      try {
+        const broadcast = new BroadcastChannel('barberbook_call_next');
+        broadcast.postMessage({ barberName: currentUser.name });
+        broadcast.close();
+      } catch (e) {
+        console.log('Broadcast not supported');
+      }
+    }
+  }, [setWorkbenchMode, refetchAppointments, currentUser?.name]);
 
   // 扫码签到
   const [isProcessingScan, setIsProcessingScan] = useState(false);
@@ -373,7 +423,7 @@ export const Workbench: React.FC<Props> = ({ onNavigate, currentUser }) => {
                         </div>
                       </div>
                     </div>
-                    <div className="border-t border-slate-50 pt-7 relative z-10">
+                    <div className="border-t border-slate-50 pt-7 relative z-10 space-y-3">
                       <button
                         onClick={handleCompleteService}
                         disabled={isCompleting}
@@ -387,6 +437,28 @@ export const Workbench: React.FC<Props> = ({ onNavigate, currentUser }) => {
                             <span className="text-base tracking-widest">确认完成并结算 ¥{currentServiceAppt.price}</span>
                           </>
                         )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          // 广播重新播报消息给 WebMonitor
+                          if (currentUser?.name && currentServiceAppt) {
+                            try {
+                              const broadcast = new BroadcastChannel('barberbook_call_next');
+                              broadcast.postMessage({
+                                barberName: currentUser.name,
+                                action: 'repeat',
+                                appointment: currentServiceAppt
+                              });
+                              broadcast.close();
+                            } catch (e) {
+                              console.log('Broadcast not supported');
+                            }
+                          }
+                        }}
+                        className="w-full bg-amber-50 hover:bg-amber-100 text-amber-600 font-black py-3 rounded-[22px] active:scale-[0.97] transition-all flex items-center justify-center gap-2"
+                      >
+                        <span className="material-symbols-outlined text-xl">record_voice_over</span>
+                        <span className="text-sm">重新语音播报</span>
                       </button>
                     </div>
                   </div>
@@ -458,10 +530,16 @@ export const Workbench: React.FC<Props> = ({ onNavigate, currentUser }) => {
                       </div>
 
                       <div className="flex flex-col items-end gap-2">
-                        <span className="text-[9px] font-black px-2 py-1 bg-slate-50 text-slate-400 rounded-lg border border-slate-100 uppercase tracking-widest">
-                          {appt.status === 'confirmed' ? 'Confirmed' : 'Pending'}
+                        <span className={`text-[9px] font-black px-2 py-1 rounded-lg border uppercase tracking-widest ${
+                          appt.status === 'checked_in' 
+                            ? 'bg-amber-50 text-amber-500 border-amber-100' 
+                            : appt.status === 'confirmed' 
+                              ? 'bg-slate-50 text-slate-400 border-slate-100'
+                              : 'bg-blue-50 text-blue-400 border-blue-100'
+                        }`}>
+                          {appt.status === 'checked_in' ? '已签到' : appt.status === 'confirmed' ? 'Confirmed' : 'Pending'}
                         </span>
-                        {!currentServiceAppt && (
+                        {!currentServiceAppt && appt.status !== 'checked_in' && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -473,6 +551,27 @@ export const Workbench: React.FC<Props> = ({ onNavigate, currentUser }) => {
                           >
                             <span className="material-symbols-outlined text-[12px]">notifications_active</span>
                             呼叫接单
+                          </button>
+                        )}
+                        {!currentServiceAppt && appt.status === 'checked_in' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // 广播消息给 WebMonitor，触发语音播报
+                              if (currentUser?.name) {
+                                try {
+                                  const broadcast = new BroadcastChannel('barberbook_call_next');
+                                  broadcast.postMessage({ barberName: currentUser.name });
+                                  broadcast.close();
+                                } catch (e) {
+                                  console.log('Broadcast not supported');
+                                }
+                              }
+                            }}
+                            className="text-[10px] bg-amber-500 text-white font-black px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-md shadow-amber-200 flex items-center gap-1"
+                          >
+                            <span className="material-symbols-outlined text-[12px]">notifications_active</span>
+                            叫号服务
                           </button>
                         )}
                         {currentServiceAppt && (

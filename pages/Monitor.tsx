@@ -61,11 +61,10 @@ export const Monitor: React.FC<Props> = ({ onNavigate, currentUser }) => {
     const fetchMonitorData = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
         try {
-            // 1. Fetch Active Barbers
+            // 1. Fetch All Barbers
             const { data: barberData } = await supabase
                 .from('app_barbers')
                 .select('*')
-                .eq('status', 'active')
                 .order('id');
 
             if (barberData) {
@@ -242,12 +241,22 @@ export const Monitor: React.FC<Props> = ({ onNavigate, currentUser }) => {
                     {loading && barbers.length === 0 ? (
                         <div className="text-center py-10 text-slate-400 text-xs">正在连接实时数据...</div>
                     ) : barbers.length > 0 ? (
-                        barbers.map(barber => {
+                        barbers.filter(b => b.status !== 'rest').map(barber => {
                             const queue = getBarberQueue(barber.name);
-                            // Determine who is currently being served (Checked In status takes priority, or first in line)
-                            const currentCustomer = queue.find(a => a.status === 'checked_in');
-                            // Remaining queue
-                            const waitingList = queue.filter(a => a.id !== currentCustomer?.id);
+                            // 获取所有已签到的顾客，按时间排序
+                            const checkedInCustomers = queue
+                                .filter(a => a.status === 'checked_in')
+                                .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+                            
+                            // 第一个签到的顾客为正在服务，其余为等待中
+                            const currentCustomer = checkedInCustomers.length > 0 ? checkedInCustomers[0] : null;
+                            const waitingCheckedInCustomers = checkedInCustomers.slice(1);
+                            
+                            // 待服务序列：包含其他已签到的顾客 + 已确认/待处理的预约
+                            const waitingList = [
+                                ...waitingCheckedInCustomers,
+                                ...queue.filter(a => a.status === 'confirmed' || a.status === 'pending')
+                            ];
 
                             return (
                                 <div key={barber.id} className="bg-surface rounded-3xl overflow-hidden shadow-sm border-t-4 border-primary animate-fade-in relative">

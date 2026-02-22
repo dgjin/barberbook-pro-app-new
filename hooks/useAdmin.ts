@@ -19,7 +19,7 @@ interface UseDashboardScheduleReturn {
   weekData: DayStatus[];
   selectedDayIndex: number;
   setSelectedDayIndex: (index: number) => void;
-  timeSlots: { time: string; appointment?: Appointment; status: 'available' | 'booked' }[];
+  timeSlots: { time: string; appointment?: Appointment; status: 'available' | 'booked' | 'expired' }[];
   loading: boolean;
   refetch: () => Promise<void>;
 }
@@ -109,8 +109,18 @@ export const useDashboardSchedule = (): UseDashboardScheduleReturn => {
 
   const timeSlots = useMemo(() => {
     const selectedDateStr = weekData[selectedDayIndex]?.fullDateStr;
-    const slots: { time: string; appointment?: Appointment; status: 'available' | 'booked' }[] = [];
+    const slots: { time: string; appointment?: Appointment; status: 'available' | 'booked' | 'expired' }[] = [];
     if (!selectedDateStr) return slots;
+
+    // 获取当前时间，用于判断时间段是否已过期
+    const now = new Date();
+    const todayStr = formatDateToDB(now);
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentTimeValue = currentHour * 60 + currentMinute;
+    
+    // 检查是否是今天
+    const isToday = selectedDateStr === todayStr;
 
     let current = new Date(`2000-01-01T${config.openTime}:00`);
     const end = new Date(`2000-01-01T${config.closeTime}:00`);
@@ -119,7 +129,21 @@ export const useDashboardSchedule = (): UseDashboardScheduleReturn => {
     while (current < end) {
       const timeStr = current.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
       const appt = dailyAppts.find(a => a.time_str === timeStr);
-      slots.push({ time: timeStr, appointment: appt, status: appt ? 'booked' : 'available' });
+      
+      // 判断时间段状态
+      let status: 'available' | 'booked' | 'expired';
+      if (appt) {
+        status = 'booked';
+      } else if (isToday) {
+        // 如果是今天，检查时间是否已过期
+        const [slotHour, slotMinute] = timeStr.split(':').map(Number);
+        const slotTimeValue = slotHour * 60 + slotMinute;
+        status = slotTimeValue < currentTimeValue ? 'expired' : 'available';
+      } else {
+        status = 'available';
+      }
+      
+      slots.push({ time: timeStr, appointment: appt, status });
       current.setMinutes(current.getMinutes() + config.serviceDuration);
     }
     return slots;
@@ -146,11 +170,13 @@ interface YearlyVoucherStat {
   barberName: string;
   count: number;
   avatar: string;
+  appointmentCount: number;
 }
 
 interface UseYearlyStatsReturn {
   stats: YearlyVoucherStat[];
-  total: number;
+  totalVouchers: number;
+  totalAppointments: number;
   loading: boolean;
   refetch: () => Promise<void>;
 }
@@ -169,7 +195,8 @@ export const useYearlyStats = (barbers: Barber[], year?: number): UseYearlyStats
       const startOfYear = `${currentYear}-01-01T00:00:00Z`;
       const endOfYear = `${currentYear + 1}-01-01T00:00:00Z`;
 
-      const { data } = await supabase
+      // 获取理发券核销数据
+      const { data: voucherData } = await supabase
         .from('app_appointments')
         .select('barber_name')
         .eq('status', 'completed')
@@ -177,20 +204,37 @@ export const useYearlyStats = (barbers: Barber[], year?: number): UseYearlyStats
         .gte('created_at', startOfYear)
         .lt('created_at', endOfYear);
 
-      if (data) {
-        const counts: Record<string, number> = {};
-        data.forEach((appt: any) => {
-          counts[appt.barber_name] = (counts[appt.barber_name] || 0) + 1;
+      // 获取总预约次数
+      const { data: apptData } = await supabase
+        .from('app_appointments')
+        .select('barber_name')
+        .eq('status', 'completed')
+        .gte('created_at', startOfYear)
+        .lt('created_at', endOfYear);
+
+      const voucherCounts: Record<string, number> = {};
+      const apptCounts: Record<string, number> = {};
+
+      if (voucherData) {
+        voucherData.forEach((appt: any) => {
+          voucherCounts[appt.barber_name] = (voucherCounts[appt.barber_name] || 0) + 1;
         });
-
-        const statsData = barbers.map(b => ({
-          barberName: b.name,
-          count: counts[b.name] || 0,
-          avatar: b.image
-        })).sort((a, b) => b.count - a.count);
-
-        setStats(statsData);
       }
+
+      if (apptData) {
+        apptData.forEach((appt: any) => {
+          apptCounts[appt.barber_name] = (apptCounts[appt.barber_name] || 0) + 1;
+        });
+      }
+
+      const statsData = barbers.map(b => ({
+        barberName: b.name,
+        count: voucherCounts[b.name] || 0,
+        avatar: b.image,
+        appointmentCount: apptCounts[b.name] || 0
+      })).sort((a, b) => b.count - a.count);
+
+      setStats(statsData);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [barbers, currentYear]);
@@ -199,9 +243,259 @@ export const useYearlyStats = (barbers: Barber[], year?: number): UseYearlyStats
     if (barbers.length > 0) fetchStats();
   }, [barbers, fetchStats]);
 
-  const total = useMemo(() => stats.reduce((sum, s) => sum + s.count, 0), [stats]);
+  const totalVouchers = useMemo(() => stats.reduce((sum, s) => sum + s.count, 0), [stats]);
+  const totalAppointments = useMemo(() => stats.reduce((sum, s) => sum + s.appointmentCount, 0), [stats]);
 
-  return { stats, total, loading, refetch: fetchStats };
+  return { stats, totalVouchers, totalAppointments, loading, refetch: fetchStats };
+};
+
+// ==================== Multi-Dimension Stats Hooks ====================
+
+interface PeriodStat {
+  barberName: string;
+  count: number;
+  avatar: string;
+  appointmentCount: number; // 总预约次数（包含未使用券的）
+}
+
+interface UsePeriodStatsReturn {
+  stats: PeriodStat[];
+  totalVouchers: number;
+  totalAppointments: number;
+  loading: boolean;
+  refetch: () => Promise<void>;
+}
+
+/**
+ * 获取月度统计数据
+ */
+export const useMonthlyStats = (barbers: Barber[], year?: number, month?: number): UsePeriodStatsReturn => {
+  const currentYear = year || new Date().getFullYear();
+  const currentMonth = month || new Date().getMonth() + 1;
+  const [stats, setStats] = useState<PeriodStat[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchStats = useCallback(async () => {
+    setLoading(true);
+    try {
+      const startOfMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01T00:00:00Z`;
+      const endOfMonth = currentMonth === 12
+        ? `${currentYear + 1}-01-01T00:00:00Z`
+        : `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01T00:00:00Z`;
+
+      // 获取理发券核销数据
+      const { data: voucherData } = await supabase
+        .from('app_appointments')
+        .select('barber_name')
+        .eq('status', 'completed')
+        .eq('used_voucher', true)
+        .gte('created_at', startOfMonth)
+        .lt('created_at', endOfMonth);
+
+      // 获取总预约次数（所有已完成订单）
+      const { data: apptData } = await supabase
+        .from('app_appointments')
+        .select('barber_name')
+        .eq('status', 'completed')
+        .gte('created_at', startOfMonth)
+        .lt('created_at', endOfMonth);
+
+      const voucherCounts: Record<string, number> = {};
+      const apptCounts: Record<string, number> = {};
+
+      if (voucherData) {
+        voucherData.forEach((appt: any) => {
+          voucherCounts[appt.barber_name] = (voucherCounts[appt.barber_name] || 0) + 1;
+        });
+      }
+
+      if (apptData) {
+        apptData.forEach((appt: any) => {
+          apptCounts[appt.barber_name] = (apptCounts[appt.barber_name] || 0) + 1;
+        });
+      }
+
+      const statsData = barbers.map(b => ({
+        barberName: b.name,
+        count: voucherCounts[b.name] || 0,
+        avatar: b.image,
+        appointmentCount: apptCounts[b.name] || 0
+      })).sort((a, b) => b.count - a.count);
+
+      setStats(statsData);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, [barbers, currentYear, currentMonth]);
+
+  useEffect(() => {
+    if (barbers.length > 0) fetchStats();
+  }, [barbers, fetchStats]);
+
+  const totalVouchers = useMemo(() => stats.reduce((sum, s) => sum + s.count, 0), [stats]);
+  const totalAppointments = useMemo(() => stats.reduce((sum, s) => sum + s.appointmentCount, 0), [stats]);
+
+  return { stats, totalVouchers, totalAppointments, loading, refetch: fetchStats };
+};
+
+/**
+ * 获取季度统计数据
+ */
+export const useQuarterlyStats = (barbers: Barber[], year?: number, quarter?: number): UsePeriodStatsReturn => {
+  const currentYear = year || new Date().getFullYear();
+  const currentQuarter = quarter || Math.floor((new Date().getMonth() + 3) / 3);
+  const [stats, setStats] = useState<PeriodStat[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchStats = useCallback(async () => {
+    setLoading(true);
+    try {
+      const startMonth = (currentQuarter - 1) * 3 + 1;
+      const endMonth = startMonth + 3;
+      const startOfQuarter = `${currentYear}-${String(startMonth).padStart(2, '0')}-01T00:00:00Z`;
+      const endOfQuarter = endMonth > 12
+        ? `${currentYear + 1}-01-01T00:00:00Z`
+        : `${currentYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00Z`;
+
+      // 获取理发券核销数据
+      const { data: voucherData } = await supabase
+        .from('app_appointments')
+        .select('barber_name')
+        .eq('status', 'completed')
+        .eq('used_voucher', true)
+        .gte('created_at', startOfQuarter)
+        .lt('created_at', endOfQuarter);
+
+      // 获取总预约次数
+      const { data: apptData } = await supabase
+        .from('app_appointments')
+        .select('barber_name')
+        .eq('status', 'completed')
+        .gte('created_at', startOfQuarter)
+        .lt('created_at', endOfQuarter);
+
+      const voucherCounts: Record<string, number> = {};
+      const apptCounts: Record<string, number> = {};
+
+      if (voucherData) {
+        voucherData.forEach((appt: any) => {
+          voucherCounts[appt.barber_name] = (voucherCounts[appt.barber_name] || 0) + 1;
+        });
+      }
+
+      if (apptData) {
+        apptData.forEach((appt: any) => {
+          apptCounts[appt.barber_name] = (apptCounts[appt.barber_name] || 0) + 1;
+        });
+      }
+
+      const statsData = barbers.map(b => ({
+        barberName: b.name,
+        count: voucherCounts[b.name] || 0,
+        avatar: b.image,
+        appointmentCount: apptCounts[b.name] || 0
+      })).sort((a, b) => b.count - a.count);
+
+      setStats(statsData);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, [barbers, currentYear, currentQuarter]);
+
+  useEffect(() => {
+    if (barbers.length > 0) fetchStats();
+  }, [barbers, fetchStats]);
+
+  const totalVouchers = useMemo(() => stats.reduce((sum, s) => sum + s.count, 0), [stats]);
+  const totalAppointments = useMemo(() => stats.reduce((sum, s) => sum + s.appointmentCount, 0), [stats]);
+
+  return { stats, totalVouchers, totalAppointments, loading, refetch: fetchStats };
+};
+
+/**
+ * 获取每周统计数据
+ */
+export const useWeeklyStats = (barbers: Barber[], date?: Date): UsePeriodStatsReturn => {
+  const currentDate = date || new Date();
+  const [stats, setStats] = useState<PeriodStat[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // 计算本周一的日期字符串作为稳定依赖（同一周内不会变化）
+  const weekKey = useMemo(() => {
+    const dayOfWeek = currentDate.getDay();
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(currentDate);
+    monday.setDate(currentDate.getDate() + diffToMonday);
+    return monday.toISOString().split('T')[0]; // 格式: "2024-02-19"
+  }, [currentDate]);
+
+  const fetchStats = useCallback(async () => {
+    setLoading(true);
+    try {
+      // 计算本周开始（周一）和结束（周日）
+      const dayOfWeek = currentDate.getDay();
+      const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const monday = new Date(currentDate);
+      monday.setDate(currentDate.getDate() + diffToMonday);
+      monday.setHours(0, 0, 0, 0);
+
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
+
+      const startOfWeek = monday.toISOString();
+      const endOfWeek = sunday.toISOString();
+
+      // 获取理发券核销数据
+      const { data: voucherData } = await supabase
+        .from('app_appointments')
+        .select('barber_name')
+        .eq('status', 'completed')
+        .eq('used_voucher', true)
+        .gte('created_at', startOfWeek)
+        .lte('created_at', endOfWeek);
+
+      // 获取总预约次数
+      const { data: apptData } = await supabase
+        .from('app_appointments')
+        .select('barber_name')
+        .eq('status', 'completed')
+        .gte('created_at', startOfWeek)
+        .lte('created_at', endOfWeek);
+
+      const voucherCounts: Record<string, number> = {};
+      const apptCounts: Record<string, number> = {};
+
+      if (voucherData) {
+        voucherData.forEach((appt: any) => {
+          voucherCounts[appt.barber_name] = (voucherCounts[appt.barber_name] || 0) + 1;
+        });
+      }
+
+      if (apptData) {
+        apptData.forEach((appt: any) => {
+          apptCounts[appt.barber_name] = (apptCounts[appt.barber_name] || 0) + 1;
+        });
+      }
+
+      const statsData = barbers.map(b => ({
+        barberName: b.name,
+        count: voucherCounts[b.name] || 0,
+        avatar: b.image,
+        appointmentCount: apptCounts[b.name] || 0
+      })).sort((a, b) => b.count - a.count);
+
+      setStats(statsData);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, [barbers, weekKey]);
+
+  useEffect(() => {
+    if (barbers.length > 0) fetchStats();
+  }, [barbers, fetchStats]);
+
+  const totalVouchers = useMemo(() => stats.reduce((sum, s) => sum + s.count, 0), [stats]);
+  const totalAppointments = useMemo(() => stats.reduce((sum, s) => sum + s.appointmentCount, 0), [stats]);
+
+  return { stats, totalVouchers, totalAppointments, loading, refetch: fetchStats };
 };
 
 // ==================== Settings Hooks ====================

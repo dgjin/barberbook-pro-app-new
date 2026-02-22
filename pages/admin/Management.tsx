@@ -51,6 +51,14 @@ export const Management: React.FC<Props> = ({ onNavigate, currentUser }) => {
     // Calendar State
     const [viewDate, setViewDate] = useState(new Date());
 
+    // Toast Notification State
+    const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({ show: false, message: '', type: 'success' });
+
+    const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+        setToast({ show: true, message, type });
+        setTimeout(() => setToast({ show: false, message: '', type }), 2000);
+    };
+
     const fetchData = async () => {
         if (staffList.length === 0 && customerList.length === 0) setIsLoading(true);
 
@@ -167,6 +175,17 @@ export const Management: React.FC<Props> = ({ onNavigate, currentUser }) => {
 
     const handleQrClick = (staff: Barber) => { setSelectedStaff(staff); setActiveModal('qr'); }
 
+    const handleToggleBarberStatus = async (staff: Barber, newStatus: 'active' | 'rest') => {
+        try {
+            await supabase.from('app_barbers').update({ status: newStatus }).eq('id', staff.id);
+            await fetchData();
+            const statusText = newStatus === 'active' ? '上班' : '休息';
+            showToast(`${staff.name} 已设置为${statusText}状态`, 'success');
+        } catch (err) {
+            showToast('状态更新失败，请重试', 'error');
+        }
+    };
+
     const handleAddBarber = () => {
         const newStaff: Barber = { id: 0, name: '', title: '', status: 'active', specialties: [], rating: 5.0, experience: 1, service_count: 0, bio: '', image: '', voucher_revenue: 0, phone: '', password_hash: '' };
         setSelectedStaff(newStaff);
@@ -269,13 +288,28 @@ export const Management: React.FC<Props> = ({ onNavigate, currentUser }) => {
     };
 
     const filteredStaff = staffList.filter(staff => {
-        const query = searchQuery.toLowerCase();
-        return staff.name.toLowerCase().includes(query) || staff.title?.toLowerCase().includes(query) || staff.specialties?.some(s => s.toLowerCase().includes(query));
+        const query = searchQuery.toLowerCase().trim();
+        if (!query) return true;
+        return staff.name.toLowerCase().includes(query) ||
+               staff.title?.toLowerCase().includes(query) ||
+               staff.specialties?.some(s => s.toLowerCase().includes(query)) ||
+               (staff.phone && staff.phone.includes(query));
     });
 
     const filteredCustomers = customerList.filter(user => {
-        const query = searchQuery.toLowerCase();
-        return user.name.toLowerCase().includes(query) || (user.realName && user.realName.toLowerCase().includes(query)) || (user.phone && user.phone.includes(query));
+        const query = searchQuery.toLowerCase().trim();
+        if (!query) return true;
+        return user.name.toLowerCase().includes(query) ||
+               (user.realName && user.realName.toLowerCase().includes(query)) ||
+               (user.phone && user.phone.includes(query));
+    });
+
+    const filteredAdmins = adminList.filter(admin => {
+        const query = searchQuery.toLowerCase().trim();
+        if (!query) return true;
+        return admin.name.toLowerCase().includes(query) ||
+               (admin.phone && admin.phone.includes(query)) ||
+               (admin.email && admin.email.toLowerCase().includes(query));
     });
 
     const calendarData = useMemo(() => {
@@ -338,11 +372,21 @@ export const Management: React.FC<Props> = ({ onNavigate, currentUser }) => {
                 </div>
             </header>
 
+            {/* Toast Notification */}
+            {toast.show && (
+                <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+                    <div className={`px-6 py-3 rounded-full shadow-xl flex items-center gap-2 ${toast.type === 'success' ? 'bg-slate-900 text-white' : 'bg-red-500 text-white'}`}>
+                        <span className="material-symbols-outlined text-[20px]">{toast.type === 'success' ? 'check_circle' : 'error'}</span>
+                        <span className="text-[13px] font-bold">{toast.message}</span>
+                    </div>
+                </div>
+            )}
+
             <main className="px-5 py-6 pb-32 overflow-y-auto no-scrollbar">
                 <div className="sticky top-0 z-20 space-y-4 mb-8">
                     <div className="relative group">
                         <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-primary transition-colors">search</span>
-                        <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-white border-none rounded-[20px] py-4 pl-12 pr-5 text-[15px] shadow-sm border border-transparent focus:ring-2 focus:ring-primary/10 transition-all" placeholder={activeTab === 'barber' ? "搜索理发师姓名或职级..." : "通过姓名或手机号检索客户..."} type="text" />
+                        <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-white border-none rounded-[20px] py-4 pl-12 pr-5 text-[15px] shadow-sm border border-transparent focus:ring-2 focus:ring-primary/10 transition-all" placeholder={activeTab === 'barber' ? "搜索昵称、职级或手机号..." : activeTab === 'customer' ? "搜索昵称、真实姓名或手机号..." : "搜索管理员姓名..."} type="text" />
                     </div>
                     <div className="bg-slate-200/50 p-1 rounded-[16px] flex">
                         <button onClick={() => { setActiveTab('barber'); setSearchQuery(''); }} className={`flex-1 py-3 text-[13px] font-black rounded-[12px] transition-all duration-300 ${activeTab === 'barber' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>发型师</button>
@@ -386,22 +430,26 @@ export const Management: React.FC<Props> = ({ onNavigate, currentUser }) => {
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center justify-between gap-3 pt-5 border-t border-slate-50">
-                                            <button onClick={() => handleEditBarberClick(staff)} className="flex-1 flex flex-col items-center gap-1.5 py-2.5 bg-slate-50 text-slate-600 rounded-[18px] transition-all hover:bg-slate-900 hover:text-white">
-                                                <span className="material-symbols-outlined text-[22px]">edit_square</span>
-                                                <span className="text-[10px] font-black uppercase tracking-tighter">基本资料</span>
+                                        <div className="flex items-center justify-between gap-2 pt-5 border-t border-slate-50">
+                                            <button onClick={() => handleToggleBarberStatus(staff, 'active')} disabled={staff.status === 'active'} className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-[14px] transition-all ${staff.status === 'active' ? 'bg-green-100 text-green-600 cursor-default' : 'bg-slate-50 text-slate-600 hover:bg-green-500 hover:text-white'}`}>
+                                                <span className="material-symbols-outlined text-[20px]">check_circle</span>
+                                                <span className="text-[9px] font-black uppercase tracking-tighter">上班</span>
                                             </button>
-                                            <button onClick={() => handleScheduleClick(staff)} className="flex-1 flex flex-col items-center gap-1.5 py-2.5 bg-slate-50 text-slate-600 rounded-[18px] transition-all hover:bg-slate-900 hover:text-white">
-                                                <span className="material-symbols-outlined text-[22px]">event_repeat</span>
-                                                <span className="text-[10px] font-black uppercase tracking-tighter">排班计划</span>
+                                            <button onClick={() => handleToggleBarberStatus(staff, 'rest')} disabled={staff.status === 'rest'} className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-[14px] transition-all ${staff.status === 'rest' ? 'bg-slate-200 text-slate-500 cursor-default' : 'bg-slate-50 text-slate-600 hover:bg-slate-400 hover:text-white'}`}>
+                                                <span className="material-symbols-outlined text-[20px]">pause_circle</span>
+                                                <span className="text-[9px] font-black uppercase tracking-tighter">休息</span>
                                             </button>
-                                            <button onClick={() => handleQrClick(staff)} className="flex-1 flex flex-col items-center gap-1.5 py-2.5 bg-blue-50 text-primary rounded-[18px] transition-all hover:bg-primary hover:text-white">
-                                                <span className="material-symbols-outlined text-[22px]">qr_code_2</span>
-                                                <span className="text-[10px] font-black uppercase tracking-tighter">专属预约码</span>
+                                            <button onClick={() => handleEditBarberClick(staff)} className="flex-1 flex flex-col items-center gap-1 py-2 bg-slate-50 text-slate-600 rounded-[14px] transition-all hover:bg-slate-900 hover:text-white">
+                                                <span className="material-symbols-outlined text-[20px]">edit_square</span>
+                                                <span className="text-[9px] font-black uppercase tracking-tighter">资料</span>
                                             </button>
-                                            <button onClick={() => handleResetPassword('app_barbers', staff.id)} className="flex-1 flex flex-col items-center gap-1.5 py-2.5 bg-rose-50 text-rose-500 rounded-[18px] transition-all hover:bg-rose-500 hover:text-white">
-                                                <span className="material-symbols-outlined text-[22px]">lock_reset</span>
-                                                <span className="text-[10px] font-black uppercase tracking-tighter">重置密码</span>
+                                            <button onClick={() => handleScheduleClick(staff)} className="flex-1 flex flex-col items-center gap-1 py-2 bg-slate-50 text-slate-600 rounded-[14px] transition-all hover:bg-slate-900 hover:text-white">
+                                                <span className="material-symbols-outlined text-[20px]">event_repeat</span>
+                                                <span className="text-[9px] font-black uppercase tracking-tighter">排班</span>
+                                            </button>
+                                            <button onClick={() => handleQrClick(staff)} className="flex-1 flex flex-col items-center gap-1 py-2 bg-blue-50 text-primary rounded-[14px] transition-all hover:bg-primary hover:text-white">
+                                                <span className="material-symbols-outlined text-[20px]">qr_code_2</span>
+                                                <span className="text-[9px] font-black uppercase tracking-tighter">预约码</span>
                                             </button>
                                         </div>
                                     </div>
@@ -449,8 +497,8 @@ export const Management: React.FC<Props> = ({ onNavigate, currentUser }) => {
                                 <div className="text-center py-24 text-slate-300 font-black uppercase tracking-widest text-[10px]">No customer found</div>
                             )
                         ) : (
-                            adminList.length > 0 ? (
-                                adminList.map((admin) => (
+                            filteredAdmins.length > 0 ? (
+                                filteredAdmins.map((admin) => (
                                     <div key={admin.id} className="bg-white rounded-[28px] p-5 shadow-sm border border-white flex flex-col gap-4 animate-fade-in">
                                         <div className="flex items-center gap-5">
                                             <div className="w-[54px] h-[54px] rounded-2xl overflow-hidden bg-slate-900 flex items-center justify-center">
@@ -482,7 +530,7 @@ export const Management: React.FC<Props> = ({ onNavigate, currentUser }) => {
                                     </div>
                                 ))
                             ) : (
-                                <div className="text-center py-24 text-slate-300 font-black uppercase tracking-widest text-[10px]">No admin logs</div>
+                                <div className="text-center py-24 text-slate-300 font-black uppercase tracking-widest text-[10px]">No admin found</div>
                             )
                         )}
                     </div>

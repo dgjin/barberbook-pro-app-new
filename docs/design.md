@@ -20,6 +20,89 @@
 2. **Supabase Edge Function**: 云端代理处理讯飞 WebSocket 鉴权、签名与 PCM/WAV 转换。
 3. **Audio Context Pipeline**: 前端使用 `AudioContext` 配合原生 WAV 解码器输出 16kHz 音效，规避传统 `<audio>` 标签在处理流数据时的随机卡顿。
 
+### 2.3 语音叫号播报系统 (Voice Announcement System)
+
+#### 2.3.1 系统架构
+监控大屏 (`WebMonitor.tsx`) 作为语音播报中枢，接收来自多渠道的触发事件：
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   客户签到       │     │  理发师完成      │     │  呼叫下一位      │
+│  (Supabase RT)   │     │  (Supabase RT)   │     │ (BroadcastChannel│
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 ▼
+                    ┌─────────────────────┐
+                    │   全局播报队列        │
+                    │ globalAnnouncement  │
+                    │     QueueRef        │
+                    └──────────┬──────────┘
+                               ▼
+                    ┌─────────────────────┐
+                    │   顺序播报处理器      │
+                    │  processGlobalQueue │
+                    │   (防重叠机制)       │
+                    └──────────┬──────────┘
+                               ▼
+                    ┌─────────────────────┐
+                    │  科大讯飞 TTS 引擎     │
+                    │   发音人: 聆小旋      │
+                    │  (大气宣传片风格)      │
+                    └─────────────────────┘
+```
+
+#### 2.3.2 触发规则矩阵
+
+| 触发源 | 触发条件 | 行为 | 日志标记 |
+|--------|----------|------|----------|
+| 客户签到 | 理发师空闲 (`!currentServingRef[barber]`) | 立即加入全局队列播报 | `[空闲叫号]` |
+| 客户签到 | 理发师忙碌 | 加入理发师私有队列，等待 | `[加入队列]` |
+| 服务完成 | `status: completed` | 延迟2秒后触发队列播报 | `[完成播报]` |
+| 主动呼叫 | 点击"呼叫下一位"按钮 | 立即加入全局队列播报 | `[呼叫下一位]` |
+
+#### 2.3.3 全局队列管理
+- **数据结构**: `Array<{ barberName: string; appt: Appointment; source: TriggerSource }>`
+- **防重叠机制**: `isProcessingAnnouncementRef` 原子锁，确保单条播报完成前不处理下一条
+- **间隔控制**: 连续播报间隔 500ms，确保语音清晰可辨
+- **去重策略**: 
+  - 内存去重: `announcedIdsRef` (Set)
+  - 持久化去重: `sessionStorage` (页面刷新后保持)
+
+#### 2.3.4 跨页面通信
+理发师工作台与监控屏通过 `BroadcastChannel` API 实现跨标签页通信：
+
+```typescript
+// Workbench.tsx 发送
+const broadcast = new BroadcastChannel('barberbook_call_next');
+broadcast.postMessage({ barberName: currentUser.name });
+
+// WebMonitor.tsx 接收
+const broadcastChannel = new BroadcastChannel('barberbook_call_next');
+broadcastChannel.onmessage = (event) => {
+    const { barberName } = event.data;
+    processBarberQueue(barberName, 'call_next');
+};
+```
+
+#### 2.3.5 TTS 引擎配置
+系统采用 **科大讯飞 (iFLYTEK) 云语音合成** 作为播报引擎：
+
+| 配置项 | 值 | 说明 |
+|--------|-----|------|
+| **发音人** | `xiaoxuan` (聆小旋) | 大气宣传片风格女声，音质饱满专业 |
+| **音频格式** | PCM 16kHz | 高保真音质，适合商业场所 |
+| **调用方式** | Supabase Edge Function | 解决浏览器 CORS 和签名安全问题 |
+| **代理链路** | Vite Dev Proxy → Edge Function → 讯飞 API | 三级转发确保稳定性 |
+
+**备选降级**: 如讯飞服务不可用，系统自动降级至浏览器原生 `speechSynthesis`
+
+#### 2.3.6 状态持久化
+已播报记录使用 `sessionStorage` 持久化，防止以下场景导致重复播报：
+- 用户误刷新监控页面
+- WebSocket 重连后的数据同步
+- 多标签页同时打开监控屏
+
 ## 3. 数据库模型与性能优化 (Schema & Performance)
 
 ### 3.1 核心表设计 (app_appointments)
