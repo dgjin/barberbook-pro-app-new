@@ -1,0 +1,463 @@
+import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { supabase } from '../services/supabase';
+import { Barber, Appointment, PageRoute, User } from '../types';
+import { generateXfyunSpeech } from '../services/xfyunService';
+
+// --- Sub-components (Memoized for Performance) ---
+
+const StatItem = memo(({ icon, label, value, unit, colorClass }: { icon: string, label: string, value: string | number, unit?: string, colorClass: string }) => (
+    <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-5 flex items-center gap-4">
+        <div className={`w-12 h-12 rounded-full ${colorClass} flex items-center justify-center`}>
+            <span className="material-symbols-outlined text-2xl">{icon}</span>
+        </div>
+        <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase">{label}</p>
+            <p className="text-3xl font-bold">{value}{unit && <span className="text-sm ml-1 opacity-50">{unit}</span>}</p>
+        </div>
+    </div>
+));
+
+const BarberCard = memo(({ barber, queue }: { barber: Barber, queue: Appointment[] }) => {
+    const currentCustomer = queue.find(a => a.status === 'checked_in');
+    const waitingList = queue.filter(a => a.id !== currentCustomer?.id);
+
+    return (
+        <div className="bg-slate-800/80 rounded-3xl border border-slate-700 overflow-hidden flex flex-col h-[340px] transition-all hover:border-primary shadow-xl group transform-gpu">
+            <div className="p-5 flex items-start gap-4 bg-slate-800/40">
+                <img src={barber.image} className="w-14 h-14 rounded-2xl object-cover ring-2 ring-slate-600" alt={barber.name} />
+                <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-bold text-white truncate">{barber.name}</h3>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{barber.title}</p>
+                </div>
+                <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md border ${currentCustomer ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
+                    {currentCustomer ? '正在服务' : '空闲'}
+                </span>
+            </div>
+
+            <div className="flex-1 p-5 flex flex-col">
+                {currentCustomer ? (
+                    <div className="bg-slate-900/60 rounded-2xl p-4 border border-slate-700 mb-4 animate-fade-in">
+                        <p className="text-[9px] text-primary font-bold uppercase mb-2">正在剪裁</p>
+                        <div className="flex justify-between items-end">
+                            <div>
+                                <p className="text-xl font-bold text-white">{currentCustomer.customer_name}</p>
+                                <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-tighter">单号: #{currentCustomer.id}</p>
+                            </div>
+                            <span className="text-[10px] text-slate-500 font-mono">{currentCustomer.time_str}</span>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-slate-700 rounded-2xl mb-4 text-slate-600">
+                        <span className="material-symbols-outlined text-2xl mb-1">chair</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">等候接单</span>
+                    </div>
+                )}
+
+                <div className="mt-auto space-y-2">
+                    <p className="text-[9px] text-slate-500 font-bold uppercase px-1">等待序列 ({waitingList.length})</p>
+                    {waitingList.slice(0, 2).map((w, idx) => (
+                        <div key={w.id} className="flex items-center justify-between bg-slate-900/30 p-2.5 rounded-xl border border-slate-700/50">
+                            <div className="flex items-center gap-3">
+                                <span className="w-5 h-5 rounded-md bg-slate-700 flex items-center justify-center text-[10px] font-bold">{idx + 1}</span>
+                                <span className="text-sm font-bold">{w.customer_name}</span>
+                            </div>
+                            <span className="text-[10px] font-mono opacity-40">{w.time_str}</span>
+                        </div>
+                    ))}
+                    {waitingList.length === 0 && <p className="text-[10px] text-slate-700 text-center py-2 italic font-bold tracking-widest uppercase opacity-40">暂无预约</p>}
+                </div>
+            </div>
+        </div>
+    );
+});
+
+const LogFeed = memo(({ logs }: { logs: string[] }) => (
+    <div className="flex-1 bg-slate-800/80 rounded-3xl p-6 flex flex-col overflow-hidden relative border border-slate-700/50 shadow-2xl">
+        <h3 className="text-xs font-black text-slate-400 mb-5 flex items-center gap-2 uppercase tracking-widest">
+            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+            实时动态 / LIVE FEED
+        </h3>
+        <div className="flex-1 overflow-y-auto space-y-4 pr-1 no-scrollbar transform-gpu">
+            {logs.map((log, i) => (
+                <div key={i} className={`flex gap-3 text-[11px] animate-fade-in-left ${i === 0 ? 'text-white' : 'text-slate-500'}`}>
+                    <span className="opacity-30 flex-none font-mono tracking-tighter">[{logs.length - i}]</span>
+                    <p className="leading-relaxed font-medium">{log}</p>
+                </div>
+            ))}
+        </div>
+    </div>
+));
+
+// --- Main Components ---
+
+interface Props {
+    onNavigate: (route: PageRoute) => void;
+    currentUser?: User | null;
+}
+
+export const WebMonitor: React.FC<Props> = ({ onNavigate, currentUser }) => {
+    const [barbers, setBarbers] = useState<Barber[]>([]);
+    const [appointments, setAppointments] = useState<Appointment[]>([]);
+    const [currentTime, setCurrentTime] = useState(new Date());
+    const [recentLogs, setRecentLogs] = useState<string[]>([]);
+    const [stats, setStats] = useState({ servedToday: 0, totalWaiting: 0, avgWaitTime: 0 });
+
+    // 语音播报核心状态
+    const [audioEnabled, setAudioEnabled] = useState(false);
+    const audioEnabledRef = useRef(false);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const channelRef = useRef<any>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const announcedIdsRef = useRef<Set<number>>(new Set()); // 记录已经播报过的 ID，防止重复播报
+
+    const getTodayString = () => {
+        const d = new Date();
+        return `${d.getMonth() + 1}月${d.getDate()}日`;
+    };
+
+    const fetchMonitorData = async (isPolling = false) => {
+        try {
+            const { data: barberData } = await supabase.from('app_barbers').select('*').eq('status', 'active').order('id');
+            if (barberData) setBarbers(barberData as unknown as Barber[]);
+
+            const todayStr = getTodayString();
+            const { data: apptData } = await supabase
+                .from('app_appointments')
+                .select('*')
+                .eq('date_str', todayStr)
+                .in('status', ['confirmed', 'pending', 'checked_in', 'completed'])
+                .order('time_str', { ascending: true });
+
+            if (apptData) {
+                const activeAppts = apptData.filter((a: any) => a.status !== 'completed' && a.status !== 'cancelled');
+                const completed = apptData.filter((a: any) => a.status === 'completed');
+                setAppointments(activeAppts as Appointment[]);
+                setStats({
+                    servedToday: completed.length,
+                    totalWaiting: activeAppts.length,
+                    avgWaitTime: activeAppts.length * 15
+                });
+
+                // 轮询补丁：检查是否有新签到（checked_in）但未播报的顾客
+                if (isPolling) {
+                    const currentCalls = activeAppts.filter((a: any) => a.status === 'checked_in');
+                    currentCalls.forEach((appt: any) => {
+                        if (!announcedIdsRef.current.has(appt.id)) {
+                            addLog(`[轮询探测到新叫号] ${appt.customer_name}`);
+                            playAnnouncement(`您好，请 ${appt.id % 1000} 号顾客 ${appt.customer_name}，到理发师 ${appt.barber_name} 处准备理发，祝您理发愉快。`);
+                            announcedIdsRef.current.add(appt.id);
+                        }
+                    });
+                }
+            }
+        } catch (e) {
+            console.error("WebMonitor Fetch Error", e);
+        }
+    };
+
+    const initAudioContext = async () => {
+        try {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+                addLog(`AudioContext 初始化: ${audioContextRef.current.state}`);
+            }
+            if (audioContextRef.current.state === 'suspended') {
+                await audioContextRef.current.resume();
+                addLog(`AudioContext 已恢复: ${audioContextRef.current.state}`);
+            }
+            return audioContextRef.current;
+        } catch (e: any) {
+            addLog(`AudioContext 激活失败: ${e.message}`);
+            return null;
+        }
+    };
+
+    const toggleAudio = async () => {
+        if (!audioEnabledRef.current) {
+            try {
+                addLog(`安全上下文环境: ${window.isSecureContext ? '是 (Secure)' : '否 (Insecure)'}`);
+                await initAudioContext();
+
+                // 唤醒浏览器原生 TTS 引擎
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance('系统叫号已开启，环境准备就绪');
+                    utterance.lang = 'zh-CN';
+                    window.speechSynthesis.speak(utterance);
+                }
+
+                setAudioEnabled(true);
+                audioEnabledRef.current = true;
+                addLog("语音系统开启成功");
+            } catch (e: any) {
+                console.error("音频系统启动失败", e);
+                addLog(`启动报错: ${e.message}`);
+            }
+        } else {
+            setAudioEnabled(false);
+            audioEnabledRef.current = false;
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+            if (audioContextRef.current) {
+                audioContextRef.current.close();
+                audioContextRef.current = null;
+            }
+            addLog("语音系统已关闭");
+        }
+    };
+
+    const playAnnouncement = async (text: string) => {
+        if (!audioEnabledRef.current) {
+            console.log("Audio not enabled, skipping:", text);
+            return;
+        }
+
+        setIsPlaying(true);
+        addLog(`📢 准备播报: ${text.slice(0, 15)}...`);
+
+        try {
+            const ctx = await initAudioContext();
+            if (!ctx) throw new Error("AudioContext 无法初始化");
+
+            addLog("使用讯飞云播报中...");
+            const audioData = await generateXfyunSpeech(text);
+
+            if (audioData && audioContextRef.current) {
+                // 使用浏览器原生解码器处理 WAV/PCM 数据（更强健，支持云端返回的 WAV 头）
+                const decodedBuffer = await audioContextRef.current.decodeAudioData(audioData.buffer);
+
+                const source = audioContextRef.current.createBufferSource();
+                source.buffer = decodedBuffer;
+                source.connect(audioContextRef.current.destination);
+                source.onended = () => {
+                    setIsPlaying(false);
+                };
+                source.start(0);
+                addLog("讯飞播报完成");
+                return;
+            } else {
+                addLog("讯飞返回数据为空，尝试回退");
+            }
+        } catch (e: any) {
+            console.warn("科大讯飞 TTS 失败", e);
+            addLog(`讯飞失败: ${e.message || '未知错误'}`);
+        }
+
+        // 下面是回退逻辑
+        addLog("尝试回退到浏览器原生 TTS...");
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            if (window.speechSynthesis.resume) window.speechSynthesis.resume();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'zh-CN';
+            utterance.volume = 1.0;
+            utterance.rate = 1.0;
+
+            const voices = window.speechSynthesis.getVoices();
+            const zhVoice = voices.find(v => v.lang.includes('zh') && (v.name.includes('Tingting') || v.name.includes('Xiaoxiao') || v.name.includes('siri')));
+            if (zhVoice) utterance.voice = zhVoice;
+
+            utterance.onend = () => {
+                setIsPlaying(false);
+                addLog("原生 TTS 播报完成");
+            };
+            utterance.onerror = (e) => {
+                console.error("SpeechSynthesis error:", e);
+                setIsPlaying(false);
+                addLog(`原生 TTS 报错: ${e.error || '未知错误'}`);
+            };
+
+            window.speechSynthesis.speak(utterance);
+        } else {
+            setIsPlaying(false);
+            addLog("无可用的语音引擎");
+        }
+    };
+
+    useEffect(() => {
+        fetchMonitorData();
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        // 每 5 秒进行一次轮询探测，作为实时通道被拦截时的兜底
+        const polling = setInterval(() => fetchMonitorData(true), 5000);
+
+        const sub = () => {
+            if (channelRef.current) return;
+            const channel = supabase.channel('web_monitor_realtime')
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_appointments' }, (payload) => {
+                    fetchMonitorData();
+                    const newRec = payload.new as Appointment;
+                    const oldRec = payload.old as Appointment;
+
+                    // 实时通知逻辑
+                    if (newRec.status === 'checked_in' && oldRec.status !== 'checked_in') {
+                        if (!announcedIdsRef.current.has(newRec.id)) {
+                            addLog(`[实时叫号] ${newRec.customer_name}`);
+                            playAnnouncement(`您好，请 ${newRec.id % 1000} 号顾客 ${newRec.customer_name}，到理发师 ${newRec.barber_name} 处准备理发，祝您理发愉快。`);
+                            announcedIdsRef.current.add(newRec.id);
+                        }
+                    }
+                })
+                .subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        addLog("实时数据通道已连接");
+                    } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+                        addLog("实时通道异常，已切换至自动轮询模式");
+                    }
+                });
+            channelRef.current = channel;
+        };
+
+        const t = setTimeout(sub, 500);
+        return () => {
+            clearTimeout(t);
+            clearInterval(timer);
+            clearInterval(polling);
+            if (channelRef.current) {
+                supabase.removeChannel(channelRef.current);
+                channelRef.current = null;
+            }
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+        };
+    }, []); // 依赖项置空，避免因 audioEnabled 切断 WebSocket 订阅
+
+    const addLog = (msg: string) => {
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setRecentLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 10));
+    };
+
+    const barberQueues = useMemo(() => {
+        const queues: Record<string, Appointment[]> = {};
+        barbers.forEach(b => {
+            queues[b.name] = appointments.filter(a => a.barber_name === b.name);
+        });
+        return queues;
+    }, [barbers, appointments]);
+
+    return (
+        <div className="min-h-screen bg-slate-900 text-white font-sans overflow-hidden flex flex-col">
+            {/* Header */}
+            <header className="flex-none h-20 bg-slate-950/50 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-8">
+                <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg relative overflow-hidden">
+                        <div className="absolute inset-0 barber-pole-bg animate-barber-scroll opacity-40"></div>
+                        <span className="material-symbols-outlined text-2xl text-white relative z-10">content_cut</span>
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-bold tracking-tight text-white">BarberBook Pro <span className="text-primary">Monitor</span></h1>
+                        <p className="text-xs text-slate-400 font-mono tracking-widest uppercase">
+                            {audioEnabled ? '系统语音引擎已开启' : '实时服务叫号系统'}
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-6">
+
+                    <div className="flex items-center gap-8">
+                        <button
+                            onClick={toggleAudio}
+                            className={`flex items-center gap-2 px-5 py-2.5 rounded-full border transition-all ${audioEnabled
+                                ? 'bg-primary/20 border-primary text-primary shadow-[0_0_20px_rgba(0,122,255,0.4)]'
+                                : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
+                        >
+                            {isPlaying ? (
+                                <div className="flex gap-1 items-center h-4">
+                                    <span className="w-1 h-3 bg-primary animate-pulse"></span>
+                                    <span className="w-1 h-5 bg-primary animate-pulse delay-75"></span>
+                                    <span className="w-1 h-3 bg-primary animate-pulse delay-150"></span>
+                                </div>
+                            ) : (
+                                <span className="material-symbols-outlined text-lg">{audioEnabled ? 'record_voice_over' : 'voice_over_off'}</span>
+                            )}
+                            <span className="text-sm font-bold">{audioEnabled ? '系统播报中' : '点击开启系统叫号'}</span>
+                        </button>
+
+
+                        <div className="text-right">
+                            <p className="text-3xl font-mono font-bold leading-none">{currentTime.toLocaleTimeString([], { hour12: false })}</p>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">{currentTime.toLocaleDateString()}</p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                if (currentUser?.role === 'barber') {
+                                    onNavigate('admin_workbench');
+                                } else {
+                                    onNavigate('home');
+                                }
+                            }}
+                            className="bg-slate-800 hover:bg-slate-700 p-2 rounded-full transition-colors group"
+                        >
+                            <span className="material-symbols-outlined text-slate-400 group-hover:text-white">close</span>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            {/* Stats Bar */}
+            <div className="flex-none grid grid-cols-4 gap-6 px-8 py-6">
+                <StatItem
+                    icon="groups"
+                    label="当前等待人数"
+                    value={stats.totalWaiting}
+                    colorClass="bg-blue-500/10 text-blue-400"
+                />
+                <StatItem
+                    icon="timer"
+                    label="预计平均等待"
+                    value={stats.avgWaitTime}
+                    unit="MIN"
+                    colorClass="bg-amber-500/10 text-amber-400"
+                />
+                <StatItem
+                    icon="check_circle"
+                    label="今日已服务"
+                    value={stats.servedToday}
+                    colorClass="bg-green-500/10 text-green-400"
+                />
+                <div className="barber-border-wrapper overflow-hidden">
+                    <div className="bg-slate-900 rounded-[20px] h-full flex items-center justify-center relative overflow-hidden px-4">
+                        <div className="absolute inset-0 bg-slate-900/60 pointer-events-none z-10"></div>
+                        <h2 className="text-4xl font-artistic text-white tracking-widest relative z-20 drop-shadow-lg">欢迎光临</h2>
+                    </div>
+                </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="flex-1 flex gap-6 px-8 pb-8 overflow-hidden">
+                <div className="flex-1 overflow-y-auto no-scrollbar grid grid-cols-2 lg:grid-cols-3 gap-6 content-start pb-20">
+                    {barbers.map(barber => (
+                        <BarberCard
+                            key={barber.id}
+                            barber={barber}
+                            queue={barberQueues[barber.name] || []}
+                        />
+                    ))}
+                </div>
+
+                {/* Right: Sidebar */}
+                <div className="w-80 flex-none flex flex-col gap-6">
+                    <div className="bg-slate-800 rounded-3xl p-6 flex flex-col items-center text-center shadow-2xl">
+                        <p className="text-white font-black text-xl mb-1">扫码极速预约</p>
+                        <p className="text-slate-500 text-[10px] mb-5 font-bold uppercase tracking-widest">Instant Queueing</p>
+                        <div className="bg-white p-3 rounded-[32px] mb-6 shadow-inner">
+                            <img
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${window.location.origin}`}
+                                className="w-40 h-40 mix-blend-multiply opacity-90"
+                                alt="Booking QR"
+                            />
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] font-bold text-slate-300 bg-slate-900/50 px-4 py-2 rounded-full border border-slate-700 uppercase tracking-widest">
+                            <span className="material-symbols-outlined text-sm text-primary">touch_app</span>
+                            扫码查看您的实时排位
+                        </div>
+                    </div>
+
+                    <LogFeed logs={recentLogs} />
+                </div>
+            </div>
+        </div>
+    );
+};

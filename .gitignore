@@ -1,0 +1,48 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# -------------------------------------------------------------------------
+# 安全敏感配置文件 - 切勿提交到版本控制
+# -------------------------------------------------------------------------
+
+# 所有环境变量文件（包含 API 密钥、密码等敏感信息）
+.env
+.env.*
+!.env.example
+
+# 本地配置文件
+*.local
+
+# 证书和密钥文件
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# 备份文件
+*.bak
+*.backup
+*~
