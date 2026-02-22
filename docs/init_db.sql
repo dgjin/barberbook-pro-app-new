@@ -143,6 +143,18 @@ CREATE INDEX IF NOT EXISTS idx_customers_name ON app_customers (name);
 -- 优化日志查询：按时间倒序
 CREATE INDEX IF NOT EXISTS idx_logs_created_at ON app_logs (created_at DESC);
 
+-- 优化数据统计查询：按创建时间和状态查询（用于周/月/季度/年度统计）
+CREATE INDEX IF NOT EXISTS idx_appointments_stats 
+ON app_appointments (created_at, status, used_voucher) 
+WHERE status = 'completed';
+
+-- 优化理发师电话搜索
+CREATE INDEX IF NOT EXISTS idx_barbers_phone ON app_barbers (phone);
+
+-- 优化客户电话和真实姓名搜索
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON app_customers (phone);
+CREATE INDEX IF NOT EXISTS idx_customers_real_name ON app_customers (real_name);
+
 -- ==========================================================
 -- 安全策略 (RLS)
 -- ==========================================================

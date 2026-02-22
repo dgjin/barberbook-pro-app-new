@@ -15,7 +15,7 @@ const iconOptions = [
   'content_cut', 'face', 'spa', 'palette',
   'colorize', 'wash', 'healing', 'content_paste',
   'person_celebrate', 'brush', 'dry_cleaning', 'soap',
-  'hand_scissors', 'styler', 'shower', 'medical_services'
+  'cut', 'styler', 'shower', 'medical_services'
 ];
 
 const adminGuides = [
