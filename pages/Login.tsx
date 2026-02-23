@@ -18,7 +18,7 @@ interface LoginForm {
 export const Login: React.FC<Props> = ({ onNavigate, onLogin }) => {
   const role = 'customer';
   const uiTexts = {
-    title: '欢迎观临理发室',
+    title: '欢迎光临理发室',
     subtitle: 'BarberBook Pro Secure Access',
     accountLabel: '登录账号 / ACCOUNT',
     accountPlaceholder: '请输入手机号或用户名'

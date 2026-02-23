@@ -738,7 +738,7 @@ export const WebMonitor: React.FC<Props> = ({ onNavigate, currentUser }) => {
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight text-white">BarberBook Pro <span className="text-primary">Monitor</span></h1>
                         <p className="text-xs text-slate-400 font-mono tracking-widest uppercase">
-                            {audioEnabled ? '系统语音引擎已开启' : '实时服务叫号系统'}
+                            {currentUser ? (audioEnabled ? '系统语音引擎已开启' : '实时服务叫号系统') : '游客浏览模式 - 仅查看'}
                         </p>
                     </div>
                 </div>
@@ -746,24 +746,26 @@ export const WebMonitor: React.FC<Props> = ({ onNavigate, currentUser }) => {
                 <div className="flex items-center gap-6">
 
                     <div className="flex items-center gap-8">
-                        <button
-                            onClick={toggleAudio}
-                            className={`flex items-center gap-2 px-5 py-2.5 rounded-full border transition-all ${audioEnabled
-                                ? 'bg-primary/20 border-primary text-primary shadow-[0_0_20px_rgba(0,122,255,0.4)]'
-                                : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
-                        >
-                            {isPlaying ? (
-                                <div className="flex gap-1 items-center h-4">
-                                    <span className="w-1 h-3 bg-primary animate-pulse"></span>
-                                    <span className="w-1 h-5 bg-primary animate-pulse delay-75"></span>
-                                    <span className="w-1 h-3 bg-primary animate-pulse delay-150"></span>
-                                </div>
-                            ) : (
-                                <span className="material-symbols-outlined text-lg">{audioEnabled ? 'record_voice_over' : 'voice_over_off'}</span>
-                            )}
-                            <span className="text-sm font-bold">{audioEnabled ? '系统播报中' : '点击开启系统叫号'}</span>
-                        </button>
-
+                        {/* 仅登录用户显示语音播报按钮 */}
+                        {currentUser && (
+                            <button
+                                onClick={toggleAudio}
+                                className={`flex items-center gap-2 px-5 py-2.5 rounded-full border transition-all ${audioEnabled
+                                    ? 'bg-primary/20 border-primary text-primary shadow-[0_0_20px_rgba(0,122,255,0.4)]'
+                                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
+                            >
+                                {isPlaying ? (
+                                    <div className="flex gap-1 items-center h-4">
+                                        <span className="w-1 h-3 bg-primary animate-pulse"></span>
+                                        <span className="w-1 h-5 bg-primary animate-pulse delay-75"></span>
+                                        <span className="w-1 h-3 bg-primary animate-pulse delay-150"></span>
+                                    </div>
+                                ) : (
+                                    <span className="material-symbols-outlined text-lg">{audioEnabled ? 'record_voice_over' : 'voice_over_off'}</span>
+                                )}
+                                <span className="text-sm font-bold">{audioEnabled ? '系统播报中' : '点击开启系统叫号'}</span>
+                            </button>
+                        )}
 
                         <div className="text-right">
                             <p className="text-3xl font-mono font-bold leading-none">{currentTime.toLocaleTimeString([], { hour12: false })}</p>
