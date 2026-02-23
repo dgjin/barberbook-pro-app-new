@@ -29,14 +29,20 @@ export const Settings: React.FC<Props> = ({ onNavigate }) => {
   const [editingService, setEditingService] = useState<Partial<ServiceItem> | null>(null);
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [showHelpGuide, setShowHelpGuide] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
 
   // 使用自定义 Hook
   const {
     config,
+    emailConfig,
     services,
     loading,
     updateConfig,
+    updateEmailConfig,
     saveConfig,
+    saveEmailConfig,
+    testEmailConfig,
     addService,
     updateService,
     deleteService,
@@ -204,8 +210,39 @@ export const Settings: React.FC<Props> = ({ onNavigate }) => {
           </div>
         </section>
 
-        {/* 服务项目管理 */}
+        {/* 邮件服务配置 */}
         <section className="animate-fade-in" style={{ animationDelay: '0.1s' }}>
+          <div className="px-1 mb-3 flex justify-between items-end">
+            <h2 className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">邮件服务配置</h2>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${emailConfig.enabled ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-500'}`}>
+              {emailConfig.enabled ? '已启用' : '未启用'}
+            </span>
+          </div>
+          <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-gray-100">
+            <div className="p-5 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-500 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[24px]">email</span>
+                </div>
+                <div>
+                  <div className="text-[15px] font-black text-slate-900 mb-0.5">SMTP 邮件服务</div>
+                  <div className="text-[11px] text-slate-400 font-medium">
+                    {emailConfig.smtpHost || '未配置'} : {emailConfig.smtpPort || '-'}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowEmailModal(true)}
+                className="w-9 h-9 rounded-full bg-blue-50 text-primary flex items-center justify-center hover:bg-primary hover:text-white transition-all active:scale-90"
+              >
+                <span className="material-symbols-outlined text-[18px]">edit</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* 服务项目管理 */}
+        <section className="animate-fade-in" style={{ animationDelay: '0.15s' }}>
           <div className="px-1 mb-3 flex justify-between items-end">
             <h2 className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">服务套餐矩阵</h2>
             <span className="text-[10px] text-primary font-bold bg-blue-50 px-2 py-0.5 rounded">共 {services.length} 个项目</span>
@@ -361,6 +398,186 @@ export const Settings: React.FC<Props> = ({ onNavigate }) => {
                     <>
                       <span className="material-symbols-outlined text-xl">save</span>
                       <span>{editingService.id ? '更新套餐项目' : '立即发布套餐'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 邮件配置弹窗 */}
+      {showEmailModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-md transition-opacity animate-fade-in"
+            onClick={() => setShowEmailModal(false)}
+          ></div>
+          <div className="relative bg-white w-full max-w-lg m-4 rounded-[36px] p-8 shadow-2xl animate-[slide-up_0.35s_cubic-bezier(0.16,1,0.3,1)] overflow-y-auto max-h-[90vh] border border-white/20">
+            <div className="flex justify-between items-center mb-8">
+              <div>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">邮件服务配置</h2>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">配置 SMTP 服务器用于发送邮件</p>
+              </div>
+              <button
+                onClick={() => setShowEmailModal(false)}
+                className="w-10 h-10 flex items-center justify-center bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* 启用开关 */}
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-slate-400">toggle_on</span>
+                  <span className="font-bold text-slate-700">启用邮件服务</span>
+                </div>
+                <button
+                  onClick={() => updateEmailConfig({ enabled: !emailConfig.enabled })}
+                  className={`w-14 h-8 rounded-full transition-all relative ${emailConfig.enabled ? 'bg-primary' : 'bg-slate-300'}`}
+                >
+                  <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${emailConfig.enabled ? 'left-7' : 'left-1'}`}></span>
+                </button>
+              </div>
+
+              {/* SMTP 服务器 */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-2 px-1">SMTP 服务器</label>
+                <input
+                  type="text"
+                  value={emailConfig.smtpHost}
+                  onChange={e => updateEmailConfig({ smtpHost: e.target.value })}
+                  className="w-full bg-slate-50 border-none rounded-[20px] py-4 px-5 font-bold text-slate-900 focus:ring-2 focus:ring-primary/20 placeholder:font-normal"
+                  placeholder="如：smtp.gmail.com"
+                />
+              </div>
+
+              {/* 端口和 SSL */}
+              <div className="grid grid-cols-2 gap-5">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-2 px-1">端口</label>
+                  <input
+                    type="number"
+                    value={emailConfig.smtpPort}
+                    onChange={e => updateEmailConfig({ smtpPort: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border-none rounded-[20px] py-4 px-5 font-mono font-black text-slate-900 focus:ring-2 focus:ring-primary/20"
+                    placeholder="587"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl cursor-pointer w-full">
+                    <input
+                      type="checkbox"
+                      checked={emailConfig.useSSL}
+                      onChange={e => updateEmailConfig({ useSSL: e.target.checked })}
+                      className="w-5 h-5 rounded border-slate-300 text-primary focus:ring-primary"
+                    />
+                    <span className="font-bold text-slate-700">使用 SSL/TLS</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* 用户名 */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-2 px-1">SMTP 用户名</label>
+                <input
+                  type="text"
+                  value={emailConfig.smtpUser}
+                  onChange={e => updateEmailConfig({ smtpUser: e.target.value })}
+                  className="w-full bg-slate-50 border-none rounded-[20px] py-4 px-5 font-bold text-slate-900 focus:ring-2 focus:ring-primary/20 placeholder:font-normal"
+                  placeholder="your@email.com"
+                />
+              </div>
+
+              {/* 密码 */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-2 px-1">SMTP 密码 / 授权码</label>
+                <input
+                  type="password"
+                  value={emailConfig.smtpPassword}
+                  onChange={e => updateEmailConfig({ smtpPassword: e.target.value })}
+                  className="w-full bg-slate-50 border-none rounded-[20px] py-4 px-5 font-bold text-slate-900 focus:ring-2 focus:ring-primary/20 placeholder:font-normal"
+                  placeholder="••••••••"
+                />
+                <p className="text-[10px] text-slate-400 mt-2 px-1">建议使用应用专用授权码而非登录密码</p>
+              </div>
+
+              {/* 发件人信息 */}
+              <div className="grid grid-cols-2 gap-5">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-2 px-1">发件人邮箱</label>
+                  <input
+                    type="email"
+                    value={emailConfig.fromEmail}
+                    onChange={e => updateEmailConfig({ fromEmail: e.target.value })}
+                    className="w-full bg-slate-50 border-none rounded-[20px] py-4 px-5 font-bold text-slate-900 focus:ring-2 focus:ring-primary/20 placeholder:font-normal"
+                    placeholder="noreply@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-2 px-1">发件人名称</label>
+                  <input
+                    type="text"
+                    value={emailConfig.fromName}
+                    onChange={e => updateEmailConfig({ fromName: e.target.value })}
+                    className="w-full bg-slate-50 border-none rounded-[20px] py-4 px-5 font-bold text-slate-900 focus:ring-2 focus:ring-primary/20 placeholder:font-normal"
+                    placeholder="BarberBook Pro"
+                  />
+                </div>
+              </div>
+
+              {/* 测试邮件 */}
+              <div className="pt-4 border-t border-slate-100">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-2 px-1">测试邮件地址</label>
+                <div className="flex gap-3">
+                  <input
+                    type="email"
+                    value={testEmail}
+                    onChange={e => setTestEmail(e.target.value)}
+                    className="flex-1 bg-slate-50 border-none rounded-[20px] py-4 px-5 font-bold text-slate-900 focus:ring-2 focus:ring-primary/20 placeholder:font-normal"
+                    placeholder="输入测试邮箱地址"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!testEmail) return;
+                      const success = await testEmailConfig(testEmail);
+                      if (success) {
+                        alert('✅ 配置验证成功！\n\n注意：当前为演示模式，邮件不会真正发送。\n\n要实现真实邮件发送，请选择以下方案之一：\n\n1. 部署 Supabase Edge Function\n2. 配置 Resend API\n3. 使用其他邮件服务（SendGrid/Mailgun）');
+                      } else {
+                        alert('❌ 配置验证失败\n\n请检查：\n1. 邮件服务是否已启用\n2. SMTP 配置是否完整\n3. 邮箱地址格式是否正确');
+                      }
+                    }}
+                    disabled={!testEmail}
+                    className="px-5 py-4 bg-slate-100 text-slate-700 rounded-[20px] font-bold hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    发送测试
+                  </button>
+                </div>
+              </div>
+
+              {/* 保存按钮 */}
+              <div className="pt-2">
+                <button
+                  onClick={async () => {
+                    const success = await saveEmailConfig();
+                    if (success) {
+                      setShowEmailModal(false);
+                      setShowSaveToast(true);
+                      setTimeout(() => setShowSaveToast(false), 2500);
+                    }
+                  }}
+                  disabled={isSavingConfig}
+                  className="w-full bg-primary text-white font-black py-4.5 rounded-[24px] shadow-2xl shadow-primary/30 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                >
+                  {isSavingConfig ? (
+                    <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-xl">save</span>
+                      <span>保存邮件配置</span>
                     </>
                   )}
                 </button>

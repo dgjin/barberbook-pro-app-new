@@ -15,7 +15,6 @@ export interface User {
   bio?: string; // 理发师简介
   specialties?: string[]; // 理发师专业领域
   wechatOpenid?: string; // 微信登录 OpenID
-  clerkId?: string; // Clerk 用户 ID
 }
 
 export interface Barber {
@@ -93,6 +92,7 @@ export type PageRoute =
   | 'launcher'
   | 'login'
   | 'register'
+  | 'forgot_password'
   | 'home'
   | 'booking'
   | 'ai_chat'

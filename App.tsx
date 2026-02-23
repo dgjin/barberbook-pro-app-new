@@ -22,6 +22,7 @@ const AIChat = lazyWithPreload(() => import('./pages/AIChat').then(m => ({ defau
 const CheckIn = lazyWithPreload(() => import('./pages/CheckIn').then(m => ({ default: m.CheckIn })));
 const Login = lazyWithPreload(() => import('./pages/Login').then(m => ({ default: m.Login })));
 const Register = lazyWithPreload(() => import('./pages/Register').then(m => ({ default: m.Register })));
+const ForgotPassword = lazyWithPreload(() => import('./pages/ForgotPassword').then(m => ({ default: m.ForgotPassword })));
 
 // 监控端
 const Monitor = lazyWithPreload(() => import('./pages/Monitor').then(m => ({ default: m.Monitor })));
@@ -72,6 +73,7 @@ const App: React.FC = () => {
       check_in: '/check_in',
       login: '/login',
       register: '/register',
+      forgot_password: '/forgot-password',
       monitor: '/monitor',
       web_monitor: '/web_monitor',
       admin_dashboard: '/admin/dashboard',
@@ -144,6 +146,7 @@ const App: React.FC = () => {
             <Route path="/check_in" element={<CheckIn onNavigate={handleNavigate} appointment={lastAppointment} currentUser={currentUser} onUpdateUser={handleUserUpdate} />} />
             <Route path="/login" element={<Login onNavigate={handleNavigate} onLogin={handleLogin} />} />
             <Route path="/register" element={<Register onNavigate={handleNavigate} onRegister={handleRegister} />} />
+            <Route path="/forgot-password" element={<ForgotPassword onNavigate={handleNavigate} />} />
 
             <Route path="/monitor" element={<Monitor onNavigate={handleNavigate} currentUser={currentUser} />} />
             <Route path="/web_monitor" element={<WebMonitor onNavigate={handleNavigate} currentUser={currentUser} />} />

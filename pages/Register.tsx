@@ -72,14 +72,16 @@ export const Register: React.FC<Props> = ({ onNavigate, onRegister }) => {
 
   return (
     <Layout className="bg-white">
-      <header className="pt-12 pb-4 px-6 sticky top-0 bg-white z-40 border-b border-gray-100 flex items-center">
-        <button
-          onClick={() => onNavigate('launcher')}
-          className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-50 transition-colors -ml-2"
-        >
-          <span className="material-symbols-outlined text-slate-800">arrow_back</span>
-        </button>
-        <h1 className="text-lg font-extrabold text-slate-900 ml-2 font-display">注册新账号</h1>
+      <header className="pt-12 pb-4 px-6 sticky top-0 bg-white z-40 border-b border-gray-100 flex items-center justify-between">
+        <div className="flex items-center">
+          <button
+            onClick={() => onNavigate('login')}
+            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-50 transition-colors -ml-2"
+          >
+            <span className="material-symbols-outlined text-slate-800">arrow_back</span>
+          </button>
+          <h1 className="text-lg font-extrabold text-slate-900 ml-2 font-display">注册新账号</h1>
+        </div>
       </header>
 
       <main className="p-6 pb-20 overflow-y-auto">
