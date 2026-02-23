@@ -5,6 +5,7 @@ import { PageRoute, User } from '../types';
 import { useAuth, useForm } from '../hooks/useAuth';
 import { Loading } from '../components/Loading';
 import { useWechatAuth } from '../hooks/useWechatAuth';
+import { useClerkAuth } from '../hooks/useClerkAuth';
 
 interface Props {
   onNavigate: (route: PageRoute) => void;
@@ -52,6 +53,14 @@ export const Login: React.FC<Props> = ({ onNavigate, onLogin }) => {
 
   // 二维码弹窗状态
   const [showQRModal, setShowQRModal] = useState(false);
+
+  // Clerk 登录 Hook
+  const {
+    loading: clerkLoading,
+    error: clerkError,
+    clearError: clearClerkError,
+    isClerkEnabled
+  } = useClerkAuth(onLogin);
 
   // 处理微信回调（从 URL 参数获取 code）
   const [searchParams] = useSearchParams();
@@ -175,6 +184,37 @@ export const Login: React.FC<Props> = ({ onNavigate, onLogin }) => {
           <div className="mt-4 p-4 bg-red-50 rounded-[20px] flex items-center gap-3 text-red-500 text-[11px] font-black uppercase animate-shake border border-red-100">
             <span className="material-symbols-outlined text-lg">error</span>
             {wechatError}
+          </div>
+        )}
+
+        {/* Clerk 登录按钮 */}
+        {isClerkEnabled && (
+          <button
+            onClick={() => {
+              clearClerkError();
+              onNavigate('register'); // Clerk 使用注册页面的完整表单
+            }}
+            disabled={clerkLoading}
+            className="w-full mt-4 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg shadow-violet-200/50 active:scale-[0.97] transition-all disabled:opacity-70 flex items-center justify-center gap-3 text-[15px] tracking-wide"
+          >
+            {clerkLoading ? (
+              <span className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></span>
+            ) : (
+              <>
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                </svg>
+                <span>使用 Clerk 登录</span>
+              </>
+            )}
+          </button>
+        )}
+
+        {/* Clerk 登录错误提示 */}
+        {clerkError && (
+          <div className="mt-4 p-4 bg-red-50 rounded-[20px] flex items-center gap-3 text-red-500 text-[11px] font-black uppercase animate-shake border border-red-100">
+            <span className="material-symbols-outlined text-lg">error</span>
+            {clerkError}
           </div>
         )}
 

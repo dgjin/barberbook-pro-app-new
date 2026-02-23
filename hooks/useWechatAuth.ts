@@ -5,7 +5,23 @@ import { supabase } from '../services/supabase';
 // 微信登录配置
 const WECHAT_APPID = import.meta.env.VITE_WECHAT_APPID || '';
 const WECHAT_OPEN_APPID = import.meta.env.VITE_WECHAT_OPEN_APPID || ''; // 微信开放平台 AppID（用于网站应用扫码登录）
-const REDIRECT_URI = import.meta.env.VITE_WECHAT_REDIRECT_URI || window.location.origin + '/auth/callback';
+
+/**
+ * 获取微信授权回调地址
+ * 微信要求 redirect_uri 必须与公众平台配置的域名一致
+ * 使用当前页面 URL 作为回调地址，确保一致性
+ */
+const getRedirectUri = (): string => {
+  // 优先使用环境变量配置的回调地址
+  const envUri = import.meta.env.VITE_WECHAT_REDIRECT_URI;
+  if (envUri && envUri !== 'http://localhost:5173/auth/callback') {
+    return envUri;
+  }
+  
+  // 否则使用当前页面 URL（去掉 hash 部分）
+  const currentUrl = window.location.href.split('#')[0].split('?')[0];
+  return currentUrl;
+};
 
 interface WechatAuthState {
   loading: boolean;
@@ -69,9 +85,10 @@ export const useWechatAuth = (onSuccess?: (user: User) => void): UseWechatAuthRe
     const state = Math.random().toString(36).substring(2, 15);
     sessionStorage.setItem('wechat_auth_state', state);
 
+    const redirectUri = getRedirectUri();
     const authUrl = `https://open.weixin.qq.com/connect/qrconnect?` +
       `appid=${WECHAT_OPEN_APPID}` +
-      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&response_type=code` +
       `&scope=snsapi_login` +
       `&state=${state}` +
@@ -99,9 +116,10 @@ export const useWechatAuth = (onSuccess?: (user: User) => void): UseWechatAuthRe
 
     // 构建微信授权 URL
     const scope = 'snsapi_userinfo'; // 获取用户信息
+    const redirectUri = getRedirectUri();
     const authUrl = `https://open.weixin.qq.com/connect/oauth2/authorize?` +
       `appid=${WECHAT_APPID}` +
-      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&response_type=code` +
       `&scope=${scope}` +
       `&state=${state}` +
