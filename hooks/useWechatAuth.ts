@@ -1,34 +1,90 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { User } from '../types';
 import { supabase } from '../services/supabase';
 
 // 微信登录配置
 const WECHAT_APPID = import.meta.env.VITE_WECHAT_APPID || '';
+const WECHAT_OPEN_APPID = import.meta.env.VITE_WECHAT_OPEN_APPID || ''; // 微信开放平台 AppID（用于网站应用扫码登录）
 const REDIRECT_URI = import.meta.env.VITE_WECHAT_REDIRECT_URI || window.location.origin + '/auth/callback';
 
 interface WechatAuthState {
   loading: boolean;
   error: string | null;
+  isWechatBrowser: boolean;
+  qrCodeUrl: string | null;
 }
 
 interface UseWechatAuthReturn extends WechatAuthState {
   loginWithWechat: () => void;
+  loginWithWechatQR: () => void;
+  generateQRCode: () => string;
   handleWechatCallback: (code: string) => Promise<User | null>;
   clearError: () => void;
 }
 
 /**
+ * 检测是否在微���浏览器内
+ */
+const isWechatBrowser = (): boolean => {
+  const ua = window.navigator.userAgent.toLowerCase();
+  return /micromessenger/i.test(ua);
+};
+
+/**
  * 微信登录 Hook
- * 处理微信 OAuth 登录流程
+ * 处理微信 OAuth 登录流程，支持：
+ * 1. 微信内浏览器 - 直接跳转授权
+ * 2. 普通浏览器 - 显示二维码扫码登录
  */
 export const useWechatAuth = (onSuccess?: (user: User) => void): UseWechatAuthReturn => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [inWechatBrowser] = useState(() => isWechatBrowser());
 
   const clearError = useCallback(() => setError(null), []);
 
   /**
-   * 发起微信登录
+   * 生成微信登录二维码 URL
+   * 用于普通浏览器扫码登录
+   */
+  const generateQRCode = useCallback((): string => {
+    if (!WECHAT_OPEN_APPID || WECHAT_OPEN_APPID === 'your_wechat_open_appid_here') {
+      // 如果没有配置开放平台 AppID，使用微信公众号的二维码方式
+      // 生成一个带参数的二维码，用户扫码后关注公众号并获取登录链接
+      const state = Math.random().toString(36).substring(2, 15);
+      sessionStorage.setItem('wechat_auth_state', state);
+      
+      // 使用 QRCode API 生成二维码
+      // 实际项目中应该调用后端接口生成带 scene 参数的二维码
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+        `${window.location.origin}/login?wechat_auth=1&state=${state}`
+      )}`;
+      
+      setQrCodeUrl(qrUrl);
+      return qrUrl;
+    }
+
+    // 使用微信开放平台网站应用扫码登录
+    const state = Math.random().toString(36).substring(2, 15);
+    sessionStorage.setItem('wechat_auth_state', state);
+
+    const authUrl = `https://open.weixin.qq.com/connect/qrconnect?` +
+      `appid=${WECHAT_OPEN_APPID}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&response_type=code` +
+      `&scope=snsapi_login` +
+      `&state=${state}` +
+      `#wechat_redirect`;
+
+    // 生成二维码图片 URL（使用微信提供的二维码接口）
+    const qrCodeImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(authUrl)}`;
+    setQrCodeUrl(qrCodeImgUrl);
+    return qrCodeImgUrl;
+  }, []);
+
+  /**
+   * 发起微信登录（微信内浏览器）
    * 跳转到微信授权页面
    */
   const loginWithWechat = useCallback(() => {
@@ -54,6 +110,20 @@ export const useWechatAuth = (onSuccess?: (user: User) => void): UseWechatAuthRe
     // 跳转到微信授权页面
     window.location.href = authUrl;
   }, []);
+
+  /**
+   * 发起微信二维码登录（普通浏览器）
+   */
+  const loginWithWechatQR = useCallback(() => {
+    if ((!WECHAT_APPID || WECHAT_APPID === 'your_wechat_appid_here') && 
+        (!WECHAT_OPEN_APPID || WECHAT_OPEN_APPID === 'your_wechat_open_appid_here')) {
+      setError('微信登录未配置，请联系管理员');
+      return;
+    }
+
+    // 生成二维码
+    generateQRCode();
+  }, [generateQRCode]);
 
   /**
    * 处理微信回调
@@ -167,7 +237,11 @@ export const useWechatAuth = (onSuccess?: (user: User) => void): UseWechatAuthRe
   return {
     loading,
     error,
+    isWechatBrowser: inWechatBrowser,
+    qrCodeUrl,
     loginWithWechat,
+    loginWithWechatQR,
+    generateQRCode,
     handleWechatCallback,
     clearError
   };
