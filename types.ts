@@ -14,6 +14,7 @@ export interface User {
   title?: string; // 理发师职级
   bio?: string; // 理发师简介
   specialties?: string[]; // 理发师专业领域
+  wechatOpenid?: string; // 微信登录 OpenID
 }
 
 export interface Barber {
