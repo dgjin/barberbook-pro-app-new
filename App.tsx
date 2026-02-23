@@ -136,7 +136,7 @@ const App: React.FC = () => {
       <ErrorBoundary>
         <Suspense fallback={<PageTransition />}>
           <Routes>
-            <Route path="/" element={<Navigate to="/launcher" replace />} />
+            <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="/launcher" element={<RoleLauncher availableBarbers={availableBarbers} handleGuestVisit={handleGuestVisit} />} />
             <Route path="/home" element={<CustomerHome onNavigate={handleNavigate} onBarberSelect={handleBarberSelect} currentUser={currentUser} />} />
             <Route path="/booking" element={<Booking onNavigate={handleNavigate} preselectedBarber={selectedBarber} onBookingSuccess={handleBookingSuccess} currentUser={currentUser} />} />

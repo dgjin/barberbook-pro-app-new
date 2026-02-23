@@ -125,7 +125,25 @@ export const Login: React.FC<Props> = ({ onNavigate, onLogin }) => {
           )}
         </button>
 
-        <div className="mt-auto pt-16 pb-6 text-center">
+        {/* 游客浏览入口 */}
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <button
+            onClick={() => onNavigate('home')}
+            className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl transition-all active:scale-[0.97] border border-slate-200"
+          >
+            <span className="material-symbols-outlined text-[18px]">visibility</span>
+            <span className="text-[13px] font-semibold">浏览理发师</span>
+          </button>
+          <button
+            onClick={() => onNavigate('monitor')}
+            className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl transition-all active:scale-[0.97] border border-slate-200"
+          >
+            <span className="material-symbols-outlined text-[18px]">tv</span>
+            <span className="text-[13px] font-semibold">查看排队</span>
+          </button>
+        </div>
+
+        <div className="mt-auto pt-12 pb-6 text-center">
           <div className="flex items-center justify-center gap-3 text-sm">
             <span className="text-slate-400 font-medium">还没有账号?</span>
             <button
