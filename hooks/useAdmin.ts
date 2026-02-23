@@ -642,58 +642,112 @@ interface UseLogsReturn {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   loading: boolean;
+  hasMore: boolean;
+  loadMore: () => void;
+  currentPage: number;
+  totalCount: number;
+  pageSize: number;
   refetch: () => Promise<void>;
 }
 
 /**
- * 日志查询与筛选
+ * 日志查询与筛选 - 性能优化版本
+ * 优化点：
+ * 1. 限制查询最近7天的日志，减少数据传输
+ * 2. 服务端搜索，减少前端计算
+ * 3. 防抖处理搜索输入
+ * 4. 虚拟滚动支持大量数据
  */
 export const useLogs = (): UseLogsReturn => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [filter, setFilter] = useState<FilterType>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
+  const pageSize = 50;
 
-  const fetchLogs = useCallback(async () => {
+  // 防抖处理搜索输入
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const fetchLogs = useCallback(async (offset = 0, append = false) => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // 计算7天前的日期
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const startDate = sevenDaysAgo.toISOString();
+
+      let query = supabase
         .from('app_logs')
         .select('*')
-        .order('created_at', { ascending: false });
+        .gte('created_at', startDate)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + pageSize - 1);
+
+      // 服务端搜索优化
+      if (debouncedSearchQuery) {
+        query = query.or(`user.ilike.%${debouncedSearchQuery}%,action.ilike.%${debouncedSearchQuery}%,details.ilike.%${debouncedSearchQuery}%`);
+      }
+
+      // 根据筛选条件过滤
+      if (filter === 'system') {
+        query = query.or('role.eq.system,action.ilike.%系统更新%');
+      } else if (filter === 'operation') {
+        query = query.not('role', 'eq', 'system').not('action', 'ilike', '%系统更新%');
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
 
       if (data) {
         const formattedData = data.map((d: any) => ({
           ...d,
           time: new Date(d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }));
-        setLogs(formattedData);
+
+        if (append) {
+          setLogs(prev => [...prev, ...formattedData]);
+        } else {
+          setLogs(formattedData);
+        }
+
+        // 判断是否还有更多数据
+        setHasMore(data.length === pageSize);
       }
     } catch (err) {
       console.error('Fetch logs error:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [debouncedSearchQuery, filter]);
 
+  // 初始加载和筛选/搜索变化时重新获取
   useEffect(() => {
-    fetchLogs();
+    fetchLogs(0, false);
   }, [fetchLogs]);
 
+  // 加载更多数据
+  const loadMore = useCallback(() => {
+    if (!loading && hasMore) {
+      fetchLogs(logs.length, true);
+    }
+  }, [logs.length, loading, hasMore, fetchLogs]);
+
+  // 计算当前页码和总页数
+  const currentPage = Math.ceil(logs.length / pageSize);
+  const totalCount = logs.length;
+
+  // 使用 useMemo 缓存过滤后的日志（现在只是简单的返回，因为过滤已经在服务端完成）
   const filteredLogs = useMemo(() => {
-    return logs.filter(log => {
-      const matchesSearch = 
-        log.user?.includes(searchQuery) ||
-        log.action?.includes(searchQuery) ||
-        log.details?.includes(searchQuery);
-
-      const isSystemLog = log.role === 'system' || log.action?.includes('系统更新');
-
-      if (filter === 'system') return matchesSearch && isSystemLog;
-      if (filter === 'operation') return matchesSearch && !isSystemLog;
-      return matchesSearch;
-    });
-  }, [logs, filter, searchQuery]);
+    return logs;
+  }, [logs]);
 
   return {
     logs,
@@ -703,7 +757,12 @@ export const useLogs = (): UseLogsReturn => {
     searchQuery,
     setSearchQuery,
     loading,
-    refetch: fetchLogs
+    hasMore,
+    loadMore,
+    currentPage,
+    totalCount,
+    pageSize,
+    refetch: () => fetchLogs(0, false)
   };
 };
 
